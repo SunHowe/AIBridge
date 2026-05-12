@@ -150,6 +150,13 @@ The bundled AIBridgeCLI is designed to expose the main AIBridge workflows as dir
   ```bash
   ./AIBridgeCache/CLI/AIBridgeCLI.exe batch from_text --text "call editor log 'Hello'\ndelay 1000"
   ./AIBridgeCache/CLI/AIBridgeCLI.exe batch from_file --file "script.txt"
+  ./AIBridgeCache/CLI/AIBridgeCLI.exe multi --cmd "editor log --message Step1&get_logs --logType Error --count 1"
+  ```
+  `multi --cmd` automatically writes plain CLI lines as Batch `call` lines. Use `multi --stdin` for long scripts or commands with complex JSON.
+- **Pass JSON safely from PowerShell** by using variables instead of inline complex `--json`
+  ```powershell
+  $values = (@{ 'm_LocalPosition.x' = 0; 'm_LocalPosition.y' = 0 } | ConvertTo-Json -Compress) -replace '"', '\"'
+  & "./AIBridgeCache/CLI/AIBridgeCLI.exe" inspector set_properties --assetPath 'Assets/Prefabs/Player.prefab' --componentName Transform --values $values
   ```
 - **Capture screenshots or GIFs for visual verification** during Play Mode workflows
   ```bash
