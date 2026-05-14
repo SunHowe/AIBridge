@@ -2,7 +2,9 @@
     "name": "cn.lys.aibridge.Editor",
     "rootNamespace": "AIBridge.Editor",
     "references": [
-        "cn.lys.aibridge.Runtime"
+        "cn.lys.aibridge.Runtime",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
     ],
     "includePlatforms": [
         "Editor"
