@@ -122,7 +122,7 @@ namespace AIBridge.Editor
                 case "InspectorCommand":
                     return "Inspector operations: get/set SerializedProperty values on scene objects, prefab assets, and assets";
                 case "PrefabCommand":
-                    return "Prefab operations: instantiate, save, unpack, apply";
+                    return "Prefab operations: instantiate, save, unpack, apply, patch";
                 case "BatchCommand":
                     return "Execute multiple commands in a single request";
                 case "HelpCommand":
@@ -207,7 +207,18 @@ namespace AIBridge.Editor
                     {
                         instantiate = new { type = "prefab", @params = new { action = "instantiate", prefabPath = "Assets/Prefabs/MyPrefab.prefab" } },
                         get_info = new { type = "prefab", @params = new { action = "get_info", prefabPath = "Assets/Prefabs/MyPrefab.prefab" } },
-                        get_hierarchy = new { type = "prefab", @params = new { action = "get_hierarchy", prefabPath = "Assets/Prefabs/MyPrefab.prefab", depth = 5 } }
+                        get_hierarchy = new { type = "prefab", @params = new { action = "get_hierarchy", prefabPath = "Assets/Prefabs/MyPrefab.prefab", depth = 5 } },
+                        patch = new
+                        {
+                            type = "prefab",
+                            @params = new
+                            {
+                                action = "patch",
+                                prefabPath = "Assets/Prefabs/MyPrefab.prefab",
+                                dryRun = true,
+                                opsJson = "[{\"op\":\"ensure_child\",\"path\":\"MyPrefab/HP\"},{\"op\":\"ensure_component\",\"path\":\"MyPrefab/HP\",\"typeName\":\"Animator\"}]"
+                            }
+                        }
                     };
 
                 case "batch":

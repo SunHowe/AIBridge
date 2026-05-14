@@ -5,7 +5,7 @@ using UnityEngine;
 namespace AIBridge.Editor
 {
     /// <summary>
-    /// Prefab operations: instantiate, save, unpack, inspect, apply
+    /// Prefab operations: instantiate, save, unpack, inspect, apply, patch
     /// Supports multiple sub-commands via "action" parameter
     /// </summary>
     public class PrefabCommand : ICommand
@@ -22,6 +22,7 @@ $CLI prefab unpack --gameObjectPath ""Player(Clone)"" [--completely true]
 $CLI prefab get_info --prefabPath ""Assets/Prefabs/Player.prefab""
 $CLI prefab get_hierarchy --prefabPath ""Assets/Prefabs/Player.prefab"" [--depth 4] [--includeInactive false]
 $CLI prefab apply --gameObjectPath ""Player(Clone)""
+$CLI prefab patch --prefabPath ""Assets/Prefabs/Player.prefab"" --ops ""patch_ops.json"" [--dryRun true]
 ```";
 
         public CommandResult Execute(CommandRequest request)
@@ -44,8 +45,10 @@ $CLI prefab apply --gameObjectPath ""Player(Clone)""
                         return GetPrefabHierarchy(request);
                     case "apply":
                         return ApplyPrefab(request);
+                    case "patch":
+                        return PrefabPatchExecutor.Execute(request.id, request);
                     default:
-                        return CommandResult.Failure(request.id, $"Unknown action: {action}. Supported: instantiate, save, unpack, get_info, get_hierarchy, apply");
+                        return CommandResult.Failure(request.id, $"Unknown action: {action}. Supported: instantiate, save, unpack, get_info, get_hierarchy, apply, patch");
                 }
             }
             catch (Exception ex)

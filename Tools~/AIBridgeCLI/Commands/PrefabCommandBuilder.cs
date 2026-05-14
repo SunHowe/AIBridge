@@ -1,18 +1,21 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using AIBridgeCLI.Core;
 
 namespace AIBridgeCLI.Commands
 {
     /// <summary>
-    /// Prefab command builder: instantiate, save, unpack, get_info, get_hierarchy, apply
+    /// Prefab command builder: instantiate, save, unpack, get_info, get_hierarchy, apply, patch
     /// </summary>
     public class PrefabCommandBuilder : BaseCommandBuilder
     {
         public override string Type => "prefab";
-        public override string Description => "Prefab operations (instantiate, inspect, save, unpack, apply)";
+        public override string Description => "Prefab operations (instantiate, inspect, save, unpack, apply, patch)";
 
         public override string[] Actions => new[]
         {
-            "instantiate", "save", "unpack", "get_info", "get_hierarchy", "apply"
+            "instantiate", "save", "unpack", "get_info", "get_hierarchy", "apply", "patch"
         };
 
         protected override Dictionary<string, List<ParameterInfo>> ActionParameters => new Dictionary<string, List<ParameterInfo>>
@@ -49,7 +52,51 @@ namespace AIBridgeCLI.Commands
             ["apply"] = new List<ParameterInfo>
             {
                 new ParameterInfo("gameObjectPath", "Path to the prefab instance (uses selection if not specified)", false)
+            },
+            ["patch"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("prefabPath", "Path to the prefab asset", true),
+                new ParameterInfo("ops", "Path to a JSON patch operations file", false),
+                new ParameterInfo("ops-json", "JSON array or object containing patch operations", false),
+                new ParameterInfo("dryRun", "Validate and preview without saving", false, "false"),
+                new ParameterInfo("dry-run", "Validate and preview without saving", false, "false")
             }
         };
+
+        public override CommandRequest Build(string action, Dictionary<string, string> options)
+        {
+            if (!string.Equals(action, "patch", StringComparison.OrdinalIgnoreCase))
+            {
+                return base.Build(action, options);
+            }
+
+            var request = base.Build(action, options);
+
+            string opsPath;
+            if (options.TryGetValue("ops", out opsPath) && !string.IsNullOrWhiteSpace(opsPath))
+            {
+                if (!File.Exists(opsPath))
+                {
+                    throw new ArgumentException($"Patch operations file not found: {opsPath}");
+                }
+
+                request.@params.Remove("ops");
+                request.@params["opsJson"] = File.ReadAllText(opsPath);
+            }
+
+            string opsJson;
+            if (options.TryGetValue("ops-json", out opsJson) && !string.IsNullOrWhiteSpace(opsJson))
+            {
+                request.@params.Remove("ops-json");
+                request.@params["opsJson"] = opsJson;
+            }
+
+            if (!request.@params.ContainsKey("opsJson") && !request.@params.ContainsKey("ops"))
+            {
+                throw new ArgumentException("Missing patch operations. Use --ops <file> or --ops-json <json>.");
+            }
+
+            return request;
+        }
     }
 }
