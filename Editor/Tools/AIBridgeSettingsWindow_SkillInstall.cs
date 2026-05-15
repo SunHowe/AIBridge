@@ -47,6 +47,7 @@ namespace AIBridge.Editor
 
                 var status = selection.IsDetected ? "Detected" : "Not detected";
                 EditorGUILayout.LabelField(status + ": " + selection.Detail, EditorStyles.miniLabel);
+                DrawSkillRootDirectoryField(selection);
 
                 EditorGUILayout.EndVertical();
             }
@@ -114,9 +115,162 @@ namespace AIBridge.Editor
                     Target = target,
                     IsDetected = detection.IsDetected,
                     Detail = detection.Detail,
-                    IsSelected = selections.TryGetValue(target.Id, out var isSelected) && isSelected
+                    IsSelected = selections.TryGetValue(target.Id, out var isSelected) && isSelected,
+                    SkillRootDirectory = target.GetResolvedSkillRootDirectoryRelativePath(projectRoot)
                 });
             }
+        }
+
+        private void DrawSkillRootDirectoryField(AssistantIntegrationSelectionState selection)
+        {
+            if (!selection.Target.SupportsSkillDirectory)
+            {
+                return;
+            }
+
+            EditorGUILayout.Space(2);
+            EditorGUILayout.BeginHorizontal();
+
+            EditorGUI.BeginChangeCheck();
+            var newDirectory = EditorGUILayout.DelayedTextField("Skills 根目录", selection.SkillRootDirectory);
+            if (EditorGUI.EndChangeCheck())
+            {
+                SetSkillRootDirectory(selection, newDirectory);
+            }
+
+            if (GUILayout.Button("Browse", GUILayout.Width(64)))
+            {
+                BrowseSkillRootDirectory(selection);
+            }
+
+            if (GUILayout.Button("Open", GUILayout.Width(52)))
+            {
+                OpenSkillRootDirectory(selection);
+            }
+
+            if (GUILayout.Button("Reset", GUILayout.Width(52)))
+            {
+                ResetSkillRootDirectory(selection);
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.LabelField("将安装到: " + BuildSkillInstallPreview(selection), EditorStyles.miniLabel);
+        }
+
+        private void SetSkillRootDirectory(AssistantIntegrationSelectionState selection, string directory)
+        {
+            var normalized = NormalizeProjectRelativeDirectory(directory);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                ResetSkillRootDirectory(selection);
+                return;
+            }
+
+            if (!IsValidProjectRelativeDirectory(normalized))
+            {
+                EditorUtility.DisplayDialog("无效目录", "Skills 根目录必须是项目内相对路径。", "确定");
+                selection.SkillRootDirectory = selection.Target.GetResolvedSkillRootDirectoryRelativePath(GetProjectRoot());
+                return;
+            }
+
+            if (AIBridgeProjectSettings.Instance.SetAssistantSkillRootDirectory(selection.Target.Id, normalized))
+            {
+                AIBridgeProjectSettings.Instance.SaveSettings();
+            }
+
+            selection.SkillRootDirectory = selection.Target.GetResolvedSkillRootDirectoryRelativePath(GetProjectRoot());
+        }
+
+        private void BrowseSkillRootDirectory(AssistantIntegrationSelectionState selection)
+        {
+            var projectRoot = GetProjectRoot();
+            var currentDirectory = Path.Combine(projectRoot, selection.SkillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
+            var selectedDirectory = EditorUtility.OpenFolderPanel("选择 Skills 根目录", currentDirectory, string.Empty);
+            if (string.IsNullOrEmpty(selectedDirectory))
+            {
+                return;
+            }
+
+            string relativeDirectory;
+            if (!TryMakeProjectRelativeDirectory(projectRoot, selectedDirectory, out relativeDirectory))
+            {
+                EditorUtility.DisplayDialog("无效目录", "请选择项目根目录内的文件夹。", "确定");
+                return;
+            }
+
+            SetSkillRootDirectory(selection, relativeDirectory);
+        }
+
+        private void OpenSkillRootDirectory(AssistantIntegrationSelectionState selection)
+        {
+            var projectRoot = GetProjectRoot();
+            var directory = Path.Combine(projectRoot, selection.SkillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            EditorUtility.RevealInFinder(directory);
+        }
+
+        private void ResetSkillRootDirectory(AssistantIntegrationSelectionState selection)
+        {
+            if (AIBridgeProjectSettings.Instance.ClearAssistantSkillRootDirectory(selection.Target.Id))
+            {
+                AIBridgeProjectSettings.Instance.SaveSettings();
+            }
+
+            selection.SkillRootDirectory = selection.Target.GetResolvedSkillRootDirectoryRelativePath(GetProjectRoot());
+        }
+
+        private string BuildSkillInstallPreview(AssistantIntegrationSelectionState selection)
+        {
+            var skillDirectoryName = selection.Target.GetSkillDirectoryName();
+            if (string.IsNullOrEmpty(skillDirectoryName))
+            {
+                return selection.SkillRootDirectory;
+            }
+
+            // 面板选择的是 Skills 根目录，实际安装时每个 Skill 会落到根目录下的独立子目录。
+            return selection.SkillRootDirectory.TrimEnd('/', '\\') + "/" + skillDirectoryName;
+        }
+
+        private static string GetProjectRoot()
+        {
+            return Path.GetDirectoryName(Application.dataPath);
+        }
+
+        private static string NormalizeProjectRelativeDirectory(string directory)
+        {
+            return string.IsNullOrWhiteSpace(directory)
+                ? string.Empty
+                : directory.Trim().Replace('\\', '/').Trim('/');
+        }
+
+        private static bool IsValidProjectRelativeDirectory(string directory)
+        {
+            return !string.IsNullOrEmpty(directory)
+                && !Path.IsPathRooted(directory)
+                && !directory.Split('/').Any(part => part == "..");
+        }
+
+        private static bool TryMakeProjectRelativeDirectory(string projectRoot, string selectedDirectory, out string relativeDirectory)
+        {
+            relativeDirectory = null;
+            var projectFullPath = Path.GetFullPath(projectRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var selectedFullPath = Path.GetFullPath(selectedDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (!selectedFullPath.StartsWith(projectFullPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(selectedFullPath, projectFullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var relative = selectedFullPath.Length == projectFullPath.Length
+                ? string.Empty
+                : selectedFullPath.Substring(projectFullPath.Length + 1);
+            relativeDirectory = NormalizeProjectRelativeDirectory(relative);
+            return IsValidProjectRelativeDirectory(relativeDirectory);
         }
 
         private void SelectDetectedTools()

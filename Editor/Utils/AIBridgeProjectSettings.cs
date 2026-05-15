@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditorInternal;
 using UnityEngine;
 
@@ -31,7 +32,14 @@ namespace AIBridge.Editor
             public bool Selected;
         }
 
-        public const int CurrentDataVersion = 1;
+        [Serializable]
+        internal sealed class AssistantSkillRootDirectoryEntry
+        {
+            public string TargetId;
+            public string SkillRootDirectory;
+        }
+
+        public const int CurrentDataVersion = 2;
         public const int DefaultGifFrameCount = 50;
         public const int DefaultGifFps = 20;
         public const float DefaultGifScale = 0.5f;
@@ -45,6 +53,7 @@ namespace AIBridge.Editor
         [SerializeField] private string scriptDirectory = DefaultScriptDirectory;
         [SerializeField] private GifRecorderSettingsData gifRecorder = new GifRecorderSettingsData();
         [SerializeField] private List<AssistantSelectionEntry> assistantSelections = new List<AssistantSelectionEntry>();
+        [SerializeField] private List<AssistantSkillRootDirectoryEntry> assistantSkillRootDirectories = new List<AssistantSkillRootDirectoryEntry>();
         [SerializeField] private bool legacyGifMigrated;
         [SerializeField] private bool legacyScriptDirectoryMigrated;
         [SerializeField] private bool autoInstallSkills = true;
@@ -109,6 +118,19 @@ namespace AIBridge.Editor
                 }
 
                 return assistantSelections;
+            }
+        }
+
+        public List<AssistantSkillRootDirectoryEntry> AssistantSkillRootDirectories
+        {
+            get
+            {
+                if (assistantSkillRootDirectories == null)
+                {
+                    assistantSkillRootDirectories = new List<AssistantSkillRootDirectoryEntry>();
+                }
+
+                return assistantSkillRootDirectories;
             }
         }
 
@@ -181,6 +203,101 @@ namespace AIBridge.Editor
                 Selected = selected
             });
             return true;
+        }
+
+        public bool TryGetAssistantSkillRootDirectory(string targetId, out string skillRootDirectory)
+        {
+            skillRootDirectory = null;
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var entries = AssistantSkillRootDirectories;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId && !string.IsNullOrEmpty(entry.SkillRootDirectory))
+                {
+                    skillRootDirectory = entry.SkillRootDirectory;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool SetAssistantSkillRootDirectory(string targetId, string skillRootDirectory)
+        {
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var normalized = NormalizeSkillRootDirectory(skillRootDirectory);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return ClearAssistantSkillRootDirectory(targetId);
+            }
+
+            if (Path.IsPathRooted(normalized) || normalized.Split('/').Any(part => part == ".."))
+            {
+                return false;
+            }
+
+            var entries = AssistantSkillRootDirectories;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId)
+                {
+                    if (entry.SkillRootDirectory == normalized)
+                    {
+                        return false;
+                    }
+
+                    entry.SkillRootDirectory = normalized;
+                    return true;
+                }
+            }
+
+            entries.Add(new AssistantSkillRootDirectoryEntry
+            {
+                TargetId = targetId,
+                SkillRootDirectory = normalized
+            });
+            return true;
+        }
+
+        public bool ClearAssistantSkillRootDirectory(string targetId)
+        {
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var entries = AssistantSkillRootDirectories;
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId)
+                {
+                    entries.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeSkillRootDirectory(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return value.Trim().Replace('\\', '/').Trim('/');
         }
 
         /// <summary>

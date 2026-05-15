@@ -42,21 +42,22 @@ namespace AIBridge.Editor
 
             if (target.SupportsSkillDirectory)
             {
-                if (!string.IsNullOrEmpty(target.SkillDirectoryRelativePath))
+                var resolvedSkillDirectory = target.GetResolvedSkillDirectoryRelativePath(projectRoot);
+                if (!string.IsNullOrEmpty(resolvedSkillDirectory))
                 {
-                    var skillDirPath = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
+                    var skillDirPath = Path.Combine(projectRoot, resolvedSkillDirectory.Replace('/', Path.DirectorySeparatorChar));
                     if (Directory.Exists(skillDirPath))
                     {
                         return new AssistantIntegrationDetection
                         {
                             TargetId = target.Id,
                             IsDetected = true,
-                            Detail = target.SkillDirectoryRelativePath
+                            Detail = resolvedSkillDirectory
                         };
                     }
                 }
 
-                var relativeSkillPath = target.GetSkillFileRelativePath();
+                var relativeSkillPath = target.GetResolvedSkillFileRelativePath(projectRoot);
                 if (!string.IsNullOrEmpty(relativeSkillPath))
                 {
                     var skillFilePath = Path.Combine(projectRoot, relativeSkillPath.Replace('/', Path.DirectorySeparatorChar));
@@ -84,7 +85,7 @@ namespace AIBridge.Editor
         {
             if (target.SupportsSkillDirectory)
             {
-                var relativeSkillPath = target.GetSkillFileRelativePath();
+                var relativeSkillPath = target.GetResolvedSkillFileRelativePath(null);
                 if (!string.IsNullOrEmpty(target.RootRuleFileName) && !string.IsNullOrEmpty(relativeSkillPath))
                 {
                     return target.RootRuleFileName + " or " + relativeSkillPath;

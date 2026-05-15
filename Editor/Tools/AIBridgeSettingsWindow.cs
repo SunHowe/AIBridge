@@ -30,6 +30,7 @@ namespace AIBridge.Editor
             public bool IsDetected { get; set; }
             public string Detail { get; set; }
             public bool IsSelected { get; set; }
+            public string SkillRootDirectory { get; set; }
         }
 
         private Vector2 _scrollPosition;

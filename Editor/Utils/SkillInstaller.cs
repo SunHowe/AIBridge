@@ -380,7 +380,8 @@ namespace AIBridge.Editor
                 return IntegrationAction.SkippedMissing;
             }
 
-            var targetDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var resolvedSkillDirectory = target.GetResolvedSkillDirectoryRelativePath(projectRoot);
+            var targetDir = Path.Combine(projectRoot, resolvedSkillDirectory.Replace('/', Path.DirectorySeparatorChar));
             skillFilePath = Path.Combine(targetDir, target.SkillFileName);
             var existed = File.Exists(skillFilePath);
 
@@ -435,8 +436,10 @@ namespace AIBridge.Editor
                 return null;
             }
 
-            var mainSkillDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
-            return Directory.GetParent(mainSkillDir)?.FullName;
+            var skillRootDirectory = target.GetResolvedSkillRootDirectoryRelativePath(projectRoot);
+            return string.IsNullOrEmpty(skillRootDirectory)
+                ? null
+                : Path.Combine(projectRoot, skillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
         }
 
         private static void CopyDirectory(string sourceDir, string targetDir)
@@ -465,10 +468,10 @@ namespace AIBridge.Editor
         {
             var cliExeName = GetCliExecutableName();
             var skillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetSkillFileRelativePath()
+                ? "/" + target.GetResolvedSkillFileRelativePath(projectRoot)
                 : "/Packages/" + PACKAGE_NAME + "/Skill~/" + SKILL_FILE_NAME;
             var prefabPatchSkillDocPath = target.SupportsSkillDirectory
-                ? "/" + target.GetSiblingSkillFileRelativePath("aibridge-prefab-patch")
+                ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, "aibridge-prefab-patch")
                 : "/Packages/" + PACKAGE_NAME + "/Skill~/aibridge-prefab-patch/" + SKILL_FILE_NAME;
             return new Dictionary<string, string>
             {
@@ -588,8 +591,11 @@ namespace AIBridge.Editor
         private static void CleanupSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
         {
             var skillDirs = new List<string>();
-            var mainSkillDir = Path.Combine(projectRoot, target.SkillDirectoryRelativePath.Replace('/', Path.DirectorySeparatorChar));
-            skillDirs.Add(mainSkillDir);
+            var resolvedSkillDirectory = target.GetResolvedSkillDirectoryRelativePath(projectRoot);
+            if (!string.IsNullOrEmpty(resolvedSkillDirectory))
+            {
+                skillDirs.Add(Path.Combine(projectRoot, resolvedSkillDirectory.Replace('/', Path.DirectorySeparatorChar)));
+            }
 
             var targetSkillRoot = GetTargetSkillRootDirectory(projectRoot, target);
             var sourceSkillRoot = GetSourceSkillRootPath();
