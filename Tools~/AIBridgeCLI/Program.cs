@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using AIBridgeCLI.Commands;
 using AIBridgeCLI.Core;
 using Newtonsoft.Json;
@@ -102,6 +101,25 @@ namespace AIBridgeCLI
                 && parsed.Action?.Equals("unity", StringComparison.OrdinalIgnoreCase) == true)
             {
                 return HandleUnityCompile(parsed, outputMode);
+            }
+
+            // Handle native Unity test commands
+            if (parsed.CommandType.Equals("test", StringComparison.OrdinalIgnoreCase)
+                && parsed.Action?.Equals("run", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (noWait)
+                {
+                    OutputFormatter.PrintError("test run does not support --no-wait. Use test status for polling.");
+                    return 1;
+                }
+
+                return HandleTestRun(parsed, outputMode);
+            }
+
+            if (parsed.CommandType.Equals("test", StringComparison.OrdinalIgnoreCase)
+                && parsed.Action?.Equals("status", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return HandleTestStatus(parsed, outputMode);
             }
 
             // Get command builder
