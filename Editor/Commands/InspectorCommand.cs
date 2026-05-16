@@ -44,7 +44,7 @@ $CLI inspector remove_component --path ""Player"" --componentName ""Rigidbody""
 PowerShell JSON recommendation:
 ```powershell
 $values = (@{ 'm_AnchoredPosition.x' = 100; 'm_AnchoredPosition.y' = -40; 'm_LocalPosition.z' = 0 } | ConvertTo-Json -Compress) -replace '""', '\""'
-& ""./AIBridgeCache/CLI/AIBridgeCLI.exe"" inspector set_properties --assetPath 'Assets/UI/LoginPanel.prefab' --objectPath 'Root/Button' --componentName RectTransform --values $values
+& $CLI inspector set_properties --assetPath 'Assets/UI/LoginPanel.prefab' --objectPath 'Root/Button' --componentName RectTransform --values $values
 ```
 
 Use `assetPath + objectPath` for prefab asset editing. Prefer SerializedProperty paths over YAML text edits; YAML patching should only be a last-resort dry-run workflow.

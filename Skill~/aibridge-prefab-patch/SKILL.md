@@ -22,7 +22,7 @@ Use `prefab patch` for complex Prefab asset edits that need multiple operations 
 4. Run dry-run:
 
 ```bash
-./AIBridgeCache/CLI/AIBridgeCLI.exe prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "AIBridgeCache/patch_ops/player_hp_patch.json" --dryRun true
+$CLI prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops "AIBridgeCache/patch_ops/player_hp_patch.json" --dryRun true
 ```
 
 5. If dry-run succeeds, run the same command without `--dryRun true`.

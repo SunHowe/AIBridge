@@ -1,14 +1,36 @@
 ---
 name: aibridge
-description: "Unity CLI 工具。执行编译、资源搜索、游戏对象操作、变换操作、组件检查、场景/预制体管理、截图捕获和 GIF 录制。支持多命令执行、运行时扩展和脚本自动化。"
-commands: [compile, asset, gameobject, transform, inspector, selection, scene, prefab, screenshot, gameview, get_logs, focus, batch, multi, menu_item, editor]
-capabilities: [asset-lookup, scene-editing, build-automation, visual-verification, component-inspection, serialized-property-editing, prefab-asset-editing, component-field-editing, hierarchy-manipulation, prefab-management, console-monitoring, editor-control, script-automation]
-triggers: [unity, compile, gameobject, transform, component, serializedproperty, property, scene, prefab, screenshot, gif, console, log, asset, hierarchy, inspector, selection, menu, editor, focus, batch, gameview, resolution, script, automation]
+description: Unity Editor CLI integration for AIBridge. Use when Codex needs to compile Unity, inspect Console logs, search/read assets, manipulate GameObjects, Transforms, components, SerializedProperty values, scenes or prefabs, capture screenshots/GIFs, control Editor focus/menu items/game view, or run batched Unity automation through AIBridgeCLI.
 ---
 
 # AI Bridge Unity Skill
 
-## AI Operating Rules
+## Invocation
+
+Run commands from the Unity project root.
+
+**CLI Path:** `./AIBridgeCache/CLI/AIBridgeCLI.exe`
+
+**Example Alias:** `$CLI` is a shorthand for the platform-appropriate AIBridge CLI invocation. Examples use `$CLI` for consistency; replace it with the matching invocation form when running commands directly.
+
+**Invocation Forms:**
+
+- Windows executable: `./AIBridgeCache/CLI/AIBridgeCLI.exe <command> [action] [options]`
+- macOS/Linux DLL: `dotnet ./AIBridgeCache/CLI/AIBridgeCLI.dll <command> [action] [options]`
+- PowerShell call operator: `& "./AIBridgeCache/CLI/AIBridgeCLI.exe" <command> [action] [options]`
+
+Most Unity-side commands require an `action` such as `asset search` or `inspector set_property`. CLI-only commands and helpers can differ: `focus` has no action, while `multi` uses `--cmd` or `--stdin`. Use `--help` or the generated command reference for the exact form.
+
+**Global Options:**
+
+- `--timeout <ms>` - Timeout (default: 5000)
+- `--raw` / `--pretty` - JSON output (default: raw)
+- `--json <json>` / `--stdin` - Complex parameters
+- `--help` - Show help
+
+**Cache Directory:** `AIBridgeCache/` (commands, results, screenshots)
+
+## Operating Rules
 
 - Use `compile unity` for Unity validation. `compile dotnet` is an explicit extra solution-build check, not a fallback.
 - For Unity assets, prefer `asset search/find --format paths`; use host file reads for file contents, and `asset read_text` only when host reads are unavailable.
@@ -19,30 +41,12 @@ triggers: [unity, compile, gameobject, transform, component, serializedproperty,
 - `focus` is Windows CLI-only, `screenshot` requires Play Mode, and `multi` is preferred for batch dispatch.
 - `multi --cmd` accepts plain CLI commands separated by `&` and automatically emits Batch `call` lines; `call`, `delay`, `log`, `menu`, and `#` comment lines are kept as native Batch script.
 
----
+## Related Resources
 
-## Invocation
+- `aibridge-prefab-patch`: specialized Skill for complex prefab asset edits.
+- Generated command reference below: exact command syntax.
 
-**CLI Path:** `./AIBridgeCache/CLI/AIBridgeCLI.exe` (run from Unity project root)
-
-**Alias (used in examples below):** `$CLI`
-
-**OS Syntax:**
-- Windows: `./AIBridgeCache/CLI/AIBridgeCLI.exe <command> <action> [options]`
-- macOS/Linux: `dotnet ./AIBridgeCache/CLI/AIBridgeCLI.dll <command> <action> [options]`
-- PowerShell: `& "./AIBridgeCache/CLI/AIBridgeCLI.exe" <command> <action> [options]`
-
-**Global Options:**
-- `--timeout <ms>` - Timeout (default: 5000)
-- `--raw` / `--pretty` - JSON output (default: raw)
-- `--json <json>` / `--stdin` - Complex parameters
-- `--help` - Show help
-
-**Cache Directory:** `AIBridgeCache/` (commands, results, screenshots)
-
----
-
-## Command Reference
+## Essential Commands
 
 ### `focus` - Bring Unity to Foreground
 
@@ -57,12 +61,8 @@ $CLI focus
 
 ```bash
 $CLI multi --cmd 'editor log --message Step1&gameobject create --name Cube --primitiveType Cube'
-$CLI multi --stdin  # Read from stdin (one per line)
+$CLI multi --stdin
 ```
-
-### `aibridge-prefab-patch` - Complex Prefab Asset Edits
-
-Use the separate `aibridge-prefab-patch` skill for complex prefab changes that need child creation, component creation, internal references, or serialized array edits.
 
 <!-- AIBRIDGE:COMMANDS -->
 
