@@ -1,5 +1,6 @@
 using System;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace AIBridge.Editor
@@ -20,9 +21,12 @@ $CLI transform set_position --path ""Player"" --x 0 --y 1 --z 0 [--local true]
 $CLI transform set_rotation --path ""Player"" --x 0 --y 90 --z 0
 $CLI transform set_scale --path ""Player"" --x 2 --y 2 --z 2 [--uniform 2]
 $CLI transform set_parent --path ""Child"" --parentPath ""Parent""
-$CLI transform look_at --path ""Player"" --targetPath ""Enemy"" [--targetX 0 --targetY 0 --targetZ 10]
+$CLI transform look_at --path ""Player"" --targetPath ""Enemy""
+$CLI transform look_at --path ""Player"" --targetInstanceId 12345
+$CLI transform look_at --path ""Player"" --targetX 0 --targetY 0 --targetZ 10
+# look_at 目标参数三选一：--targetPath / --targetInstanceId / --targetX --targetY --targetZ
 $CLI transform reset --path ""Player""
-$CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
+$CLI transform set_sibling_index --path ""Child"" --index 0 [--first true] [--last true]
 ```";
 
         public CommandResult Execute(CommandRequest request)
@@ -47,6 +51,8 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
                         return LookAt(request);
                     case "reset":
                         return Reset(request);
+                    case "set_sibling_index":
+                        return SetSiblingIndex(request);
                     default:
                         return CommandResult.Failure(request.id, $"Unknown action: {action}");
                 }
@@ -73,7 +79,7 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
                 rotation = new { x = transform.eulerAngles.x, y = transform.eulerAngles.y, z = transform.eulerAngles.z },
                 localRotation = new { x = transform.localEulerAngles.x, y = transform.localEulerAngles.y, z = transform.localEulerAngles.z },
                 localScale = new { x = transform.localScale.x, y = transform.localScale.y, z = transform.localScale.z },
-                parent = transform.parent?.name,
+                parent = transform.parent != null ? transform.parent.name : null,
                 childCount = transform.childCount
             });
         }
@@ -193,12 +199,12 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
 #else
                 var parentGo = EditorUtility.InstanceIDToObject(parentInstanceId) as GameObject;
 #endif
-                newParent = parentGo?.transform;
+                newParent = parentGo != null ? parentGo.transform : null;
             }
             else if (!string.IsNullOrEmpty(parentPath))
             {
                 var parentGo = GameObject.Find(parentPath);
-                newParent = parentGo?.transform;
+                newParent = parentGo != null ? parentGo.transform : null;
             }
 
             Undo.SetTransformParent(transform, newParent, $"Set Parent {transform.name}");
@@ -207,7 +213,7 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
             return CommandResult.Success(request.id, new
             {
                 name = transform.name,
-                parent = transform.parent?.name
+                parent = transform.parent != null ? transform.parent.name : null
             });
         }
 
@@ -219,22 +225,93 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
                 return CommandResult.Failure(request.id, "Transform not found");
             }
 
-            var targetX = request.GetParam("targetX", float.NaN);
-            var targetY = request.GetParam("targetY", float.NaN);
-            var targetZ = request.GetParam("targetZ", float.NaN);
+            Vector3 targetPosition;
+            string targetMode;
 
-            if (float.IsNaN(targetX) || float.IsNaN(targetY) || float.IsNaN(targetZ))
+            // 优先支持对象目标，避免传入 targetPath/targetInstanceId 时误判为缺少坐标。
+            var targetPath = request.GetParam<string>("targetPath", null);
+            var targetInstanceId = request.GetParam("targetInstanceId", 0);
+            if (!string.IsNullOrEmpty(targetPath) || targetInstanceId != 0)
             {
-                return CommandResult.Failure(request.id, "Missing target coordinates");
+                var targetTransform = FindTransform(targetPath, targetInstanceId);
+                if (targetTransform == null)
+                {
+                    return CommandResult.Failure(request.id, "Target Transform not found");
+                }
+
+                targetPosition = targetTransform.position;
+                targetMode = targetInstanceId != 0 ? "instanceId" : "path";
+            }
+            else
+            {
+                var targetX = request.GetParam("targetX", float.NaN);
+                var targetY = request.GetParam("targetY", float.NaN);
+                var targetZ = request.GetParam("targetZ", float.NaN);
+
+                if (float.IsNaN(targetX) || float.IsNaN(targetY) || float.IsNaN(targetZ))
+                {
+                    return CommandResult.Failure(request.id, "Missing target. Provide --targetPath/--targetInstanceId or --targetX --targetY --targetZ");
+                }
+
+                targetPosition = new Vector3(targetX, targetY, targetZ);
+                targetMode = "coordinates";
             }
 
             Undo.RecordObject(transform, $"LookAt {transform.name}");
-            transform.LookAt(new Vector3(targetX, targetY, targetZ));
+            transform.LookAt(targetPosition);
+            EditorUtility.SetDirty(transform);
 
             return CommandResult.Success(request.id, new
             {
                 name = transform.name,
+                targetMode = targetMode,
+                targetPosition = new { x = targetPosition.x, y = targetPosition.y, z = targetPosition.z },
                 rotation = new { x = transform.eulerAngles.x, y = transform.eulerAngles.y, z = transform.eulerAngles.z }
+            });
+        }
+
+        private CommandResult SetSiblingIndex(CommandRequest request)
+        {
+            var transform = GetTargetTransform(request);
+            if (transform == null)
+            {
+                return CommandResult.Failure(request.id, "Transform not found");
+            }
+
+            var first = request.GetParam("first", false);
+            var last = request.GetParam("last", false);
+            var siblingCount = GetSiblingCount(transform);
+
+            Undo.RecordObject(transform, $"Set Sibling Index {transform.name}");
+
+            if (first)
+            {
+                transform.SetAsFirstSibling();
+            }
+            else if (last)
+            {
+                transform.SetAsLastSibling();
+            }
+            else
+            {
+                var requestedIndex = request.GetParam("index", transform.GetSiblingIndex());
+                var index = Mathf.Clamp(requestedIndex, 0, siblingCount - 1);
+                transform.SetSiblingIndex(index);
+            }
+
+            EditorUtility.SetDirty(transform);
+            if (transform.gameObject.scene.IsValid())
+            {
+                EditorSceneManager.MarkSceneDirty(transform.gameObject.scene);
+            }
+
+            return CommandResult.Success(request.id, new
+            {
+                name = transform.name,
+                path = GetTransformPath(transform),
+                index = transform.GetSiblingIndex(),
+                siblingCount = siblingCount,
+                parent = transform.parent != null ? transform.parent.name : null
             });
         }
 
@@ -279,6 +356,16 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
             var path = request.GetParam<string>("path", null);
             var instanceId = request.GetParam("instanceId", 0);
 
+            if (!string.IsNullOrEmpty(path) || instanceId != 0)
+            {
+                return FindTransform(path, instanceId);
+            }
+
+            return Selection.activeTransform;
+        }
+
+        private Transform FindTransform(string path, int instanceId)
+        {
             if (instanceId != 0)
             {
 #if UNITY_6000_3_OR_NEWER
@@ -286,16 +373,40 @@ $CLI transform set_sibling_index --path ""Child"" --index 0 [--first true]
 #else
                 var go = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
 #endif
-                return go?.transform;
+                return go != null ? go.transform : null;
             }
 
             if (!string.IsNullOrEmpty(path))
             {
                 var go = GameObject.Find(path);
-                return go?.transform;
+                return go != null ? go.transform : null;
             }
 
-            return Selection.activeTransform;
+            return null;
+        }
+
+        private int GetSiblingCount(Transform transform)
+        {
+            if (transform.parent != null)
+            {
+                return transform.parent.childCount;
+            }
+
+            return transform.gameObject.scene.rootCount;
+        }
+
+        private string GetTransformPath(Transform transform)
+        {
+            var path = transform.name;
+            var parent = transform.parent;
+
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+
+            return path;
         }
     }
 }
