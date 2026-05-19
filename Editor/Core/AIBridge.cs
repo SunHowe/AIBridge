@@ -62,12 +62,13 @@ namespace AIBridge.Editor
             _enabledOption = new EditorOption<bool>("AIBridge_Enabled", true, ReadEnabled, WriteEnabled);
             _enabled = _enabledOption.Value;
 
-            // Get the exchange directory inside the package (Tools~/Exchange)
+            // Get the exchange directory in the Unity project root (.aibridge)
             BridgeDirectory = GetExchangeDirectory();
 
             // Initialize components
             CommandRegistry.Initialize();
             _watcher = new CommandWatcher(BridgeDirectory);
+            LegacyCacheDirectoryCleaner.CleanupIfNeeded(GetProjectRoot(), BridgeDirectory);
             EditorInstanceTracker.Initialize(BridgeDirectory);
 
             // Subscribe to editor update
@@ -188,8 +189,12 @@ namespace AIBridge.Editor
         private static string GetExchangeDirectory()
         {
             // Use .aibridge in Unity project root for better compatibility with git/UPM installation
-            var projectRoot = Path.GetDirectoryName(Application.dataPath);
-            return Path.Combine(projectRoot, ".aibridge");
+            return Path.Combine(GetProjectRoot(), ".aibridge");
+        }
+
+        private static string GetProjectRoot()
+        {
+            return Path.GetDirectoryName(Application.dataPath);
         }
 
         private static bool ReadEnabled(string key, bool defaultValue)
