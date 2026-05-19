@@ -23,7 +23,7 @@ namespace AIBridge.Editor
 **用途**：自动化 Unity 编辑器操作和 CLI 命令执行，支持编译暂停/恢复
 
 **Actions**：
-- `from_text` - 直接执行脚本文本（自动写入 Cache 临时目录）
+- `from_text` - 直接执行脚本文本（自动写入 `.aibridge/scripts` 临时目录）
 - `from_file` - 执行已有脚本文件（.txt 格式）
 
 **脚本语法**：
@@ -40,7 +40,7 @@ menu 菜单路径           # 执行编辑器菜单项
 # 直接执行脚本文本
 $CLI batch from_text --text ""call editor log 'Hello'\ndelay 1000""
 
-# 执行并保存脚本到 Cache 目录
+# 执行并保存脚本到 `.aibridge/scripts` 目录
 $CLI batch from_text --text ""..."" --name ""my_script"" --keep-file
 
 # 执行已有脚本文件
