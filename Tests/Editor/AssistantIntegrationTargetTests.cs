@@ -125,6 +125,81 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
+        public void RecommendedSkillManifestParserReadsMarketplacePluginSkillList()
+        {
+            var repositoryRoot = Path.Combine(_projectRoot, "repo");
+            var skillDirectory = Path.Combine(repositoryRoot, "skills", "docx");
+            var manifestDirectory = Path.Combine(repositoryRoot, ".claude-plugin");
+            Directory.CreateDirectory(skillDirectory);
+            Directory.CreateDirectory(manifestDirectory);
+            File.WriteAllText(Path.Combine(skillDirectory, "SKILL.md"), "---\nname: docx\ndescription: Word document workflow.\n---\n# DOCX");
+            File.WriteAllText(Path.Combine(manifestDirectory, "marketplace.json"), "{ \"plugins\": [{ \"name\": \"document-skills\", \"source\": \"./\", \"skills\": [\"./skills/docx\"] }] }");
+
+            var repository = new RecommendedSkillRepository
+            {
+                Id = "test",
+                RepositoryUrl = "https://example.com/repo.git",
+                BranchOrTag = "main",
+                ManifestRelativePath = ".claude-plugin/marketplace.json",
+                ScanRootRelativePath = "skills"
+            };
+
+            var skills = RecommendedSkillManifestParser.LoadSkills(repository, repositoryRoot, "abc123");
+
+            Assert.AreEqual(1, skills.Count);
+            Assert.AreEqual("docx", skills[0].Name);
+            Assert.AreEqual("skills/docx", skills[0].SourceRelativePath);
+        }
+
+        [Test]
+        public void DefaultRecommendedSkillRepositoriesIncludeAnthropicSkills()
+        {
+            var repositories = RecommendedSkillRepositories.GetDefaultRepositories();
+
+            Assert.IsTrue(repositories.Any(repository => repository.Id == "anthropic-skills"
+                && repository.RepositoryUrl == "https://github.com/anthropics/skills.git"
+                && repository.ManifestRelativePath == ".claude-plugin/marketplace.json"));
+        }
+
+        [Test]
+        public void DefaultRecommendedSkillRepositoriesIncludeSuperpowersSkills()
+        {
+            var repositories = RecommendedSkillRepositories.GetDefaultRepositories();
+
+            Assert.IsTrue(repositories.Any(repository => repository.Id == "obra-superpowers"
+                && repository.RepositoryUrl == "https://github.com/obra/superpowers.git"
+                && repository.ManifestRelativePath == ".claude-plugin/plugin.json"
+                && repository.ScanRootRelativePath == "skills"));
+        }
+
+        [Test]
+        public void RecommendedSkillManifestParserScansWhenManifestHasNoSkillList()
+        {
+            var repositoryRoot = Path.Combine(_projectRoot, "repo");
+            var skillDirectory = Path.Combine(repositoryRoot, "skills", "test-driven-development");
+            var manifestDirectory = Path.Combine(repositoryRoot, ".claude-plugin");
+            Directory.CreateDirectory(skillDirectory);
+            Directory.CreateDirectory(manifestDirectory);
+            File.WriteAllText(Path.Combine(skillDirectory, "SKILL.md"), "---\nname: test-driven-development\ndescription: TDD workflow.\n---\n# TDD");
+            File.WriteAllText(Path.Combine(manifestDirectory, "plugin.json"), "{ \"name\": \"superpowers\", \"description\": \"Core skills library\" }");
+
+            var repository = new RecommendedSkillRepository
+            {
+                Id = "test",
+                RepositoryUrl = "https://example.com/repo.git",
+                BranchOrTag = "main",
+                ManifestRelativePath = ".claude-plugin/plugin.json",
+                ScanRootRelativePath = "skills"
+            };
+
+            var skills = RecommendedSkillManifestParser.LoadSkills(repository, repositoryRoot, "abc123");
+
+            Assert.AreEqual(1, skills.Count);
+            Assert.AreEqual("test-driven-development", skills[0].Name);
+            Assert.AreEqual("skills/test-driven-development", skills[0].SourceRelativePath);
+        }
+
+        [Test]
         public void RecommendedSkillManifestParserScansWhenManifestMissing()
         {
             var repositoryRoot = Path.Combine(_projectRoot, "repo");

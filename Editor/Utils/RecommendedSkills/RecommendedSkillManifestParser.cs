@@ -39,22 +39,65 @@ namespace AIBridge.Editor
                 return result;
             }
 
-            object skillsValue;
-            if (!manifest.TryGetValue("skills", out skillsValue))
-            {
-                return result;
-            }
-
-            foreach (var skillPath in ExtractSkillPaths(skillsValue))
-            {
-                AddSkillIfValid(result, repository, repositoryDirectory, commit, skillPath);
-            }
+            AddTopLevelSkillPaths(result, repository, repositoryDirectory, commit, manifest);
+            AddMarketplaceSkillPaths(result, repository, repositoryDirectory, commit, manifest);
 
             return result
                 .GroupBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .OrderBy(skill => skill.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        private static void AddTopLevelSkillPaths(List<RecommendedSkillInfo> result, RecommendedSkillRepository repository, string repositoryDirectory, string commit, Dictionary<string, object> manifest)
+        {
+            object skillsValue;
+            if (!manifest.TryGetValue("skills", out skillsValue))
+            {
+                return;
+            }
+
+            foreach (var skillPath in ExtractSkillPaths(skillsValue))
+            {
+                AddSkillIfValid(result, repository, repositoryDirectory, commit, skillPath);
+            }
+        }
+
+        private static void AddMarketplaceSkillPaths(List<RecommendedSkillInfo> result, RecommendedSkillRepository repository, string repositoryDirectory, string commit, Dictionary<string, object> manifest)
+        {
+            object pluginsValue;
+            if (!manifest.TryGetValue("plugins", out pluginsValue))
+            {
+                return;
+            }
+
+            var plugins = pluginsValue as List<object>;
+            if (plugins == null)
+            {
+                return;
+            }
+
+            foreach (var pluginEntry in plugins)
+            {
+                var pluginMap = pluginEntry as Dictionary<string, object>;
+                if (pluginMap == null)
+                {
+                    continue;
+                }
+
+                object skillsValue;
+                if (!pluginMap.TryGetValue("skills", out skillsValue))
+                {
+                    continue;
+                }
+
+                var sourceRoot = GetLocalSourceRoot(pluginMap);
+                foreach (var skillPath in ExtractSkillPaths(skillsValue))
+                {
+                    // marketplace.json 的 skills 通常相对 plugin source；统一转成仓库根目录相对路径再做安全校验。
+                    AddSkillIfValid(result, repository, repositoryDirectory, commit, CombineManifestPaths(sourceRoot, skillPath));
+                }
+            }
         }
 
         private static IEnumerable<string> ExtractSkillPaths(object skillsValue)
@@ -255,6 +298,40 @@ namespace AIBridge.Editor
             }
 
             return normalized.Trim('/');
+        }
+
+        private static string GetLocalSourceRoot(Dictionary<string, object> pluginMap)
+        {
+            object sourceValue;
+            if (!pluginMap.TryGetValue("source", out sourceValue))
+            {
+                return string.Empty;
+            }
+
+            var sourceText = sourceValue as string;
+            if (string.IsNullOrWhiteSpace(sourceText) || sourceText.Contains("://"))
+            {
+                return string.Empty;
+            }
+
+            return NormalizeManifestPath(sourceText);
+        }
+
+        private static string CombineManifestPaths(string basePath, string path)
+        {
+            var normalizedPath = NormalizeManifestPath(path);
+            if (string.IsNullOrEmpty(normalizedPath))
+            {
+                return string.Empty;
+            }
+
+            var normalizedBase = NormalizeManifestPath(basePath);
+            if (string.IsNullOrEmpty(normalizedBase))
+            {
+                return normalizedPath;
+            }
+
+            return NormalizeManifestPath(normalizedBase + "/" + normalizedPath);
         }
 
         private static string NormalizePath(string path)
