@@ -19,7 +19,7 @@ namespace AIBridge.Editor
 
         private void DrawScriptsTab()
         {
-            EditorGUILayout.LabelField("脚本执行管理", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Script Execution", "脚本执行管理"), EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
             // 脚本目录设置
@@ -40,14 +40,14 @@ namespace AIBridge.Editor
 
         private void DrawScriptDirectorySettings()
         {
-            EditorGUILayout.LabelField("脚本目录", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Script Directory", "脚本目录"), EditorStyles.boldLabel);
             
             EditorGUILayout.BeginHorizontal();
-            _scriptDirectory = EditorGUILayout.TextField("目录路径", _scriptDirectory);
+            _scriptDirectory = EditorGUILayout.TextField(AIBridgeEditorText.T("Directory Path", "目录路径"), _scriptDirectory);
             
-            if (GUILayout.Button("浏览", GUILayout.Width(60)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Browse", "浏览"), GUILayout.Width(60)))
             {
-                var path = EditorUtility.OpenFolderPanel("选择脚本目录", "Assets", "");
+                var path = EditorUtility.OpenFolderPanel(AIBridgeEditorText.T("Select Script Directory", "选择脚本目录"), "Assets", "");
                 if (!string.IsNullOrEmpty(path))
                 {
                     // 转换为相对路径
@@ -63,13 +63,13 @@ namespace AIBridge.Editor
                 }
             }
             
-            if (GUILayout.Button("刷新", GUILayout.Width(60)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Refresh", "刷新"), GUILayout.Width(60)))
             {
                 RefreshScriptList();
             }
             EditorGUILayout.EndHorizontal();
 
-            if (GUILayout.Button("创建默认目录和示例脚本"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Create Default Directory and Example Script", "创建默认目录和示例脚本")))
             {
                 CreateDefaultScriptDirectory();
             }
@@ -77,11 +77,11 @@ namespace AIBridge.Editor
 
         private void DrawScriptList()
         {
-            EditorGUILayout.LabelField("可用脚本", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Available Scripts", "可用脚本"), EditorStyles.boldLabel);
 
             if (_scriptFiles.Count == 0)
             {
-                EditorGUILayout.HelpBox("未找到脚本文件。请刷新或创建示例脚本。", MessageType.Info);
+                EditorGUILayout.HelpBox(AIBridgeEditorText.T("No script files found. Refresh or create an example script.", "未找到脚本文件。请刷新或创建示例脚本。"), MessageType.Info);
                 return;
             }
 
@@ -104,7 +104,7 @@ namespace AIBridge.Editor
                 EditorGUILayout.LabelField(scriptName);
                 
                 // 执行按钮
-                if (GUILayout.Button("执行", GUILayout.Width(60)))
+                if (GUILayout.Button(AIBridgeEditorText.T("Run", "执行"), GUILayout.Width(60)))
                 {
                     ExecuteScript(scriptPath);
                 }
@@ -116,12 +116,12 @@ namespace AIBridge.Editor
 
         private void DrawExecutionControls()
         {
-            EditorGUILayout.LabelField("执行控制", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Execution Controls", "执行控制"), EditorStyles.boldLabel);
             
             EditorGUILayout.BeginHorizontal();
             
             GUI.enabled = !ScriptExecution.ScriptExecutor.IsExecuting;
-            if (GUILayout.Button("执行选中脚本"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Run Selected Script", "执行选中脚本")))
             {
                 if (_selectedScriptIndex >= 0 && _selectedScriptIndex < _scriptFiles.Count)
                 {
@@ -129,23 +129,26 @@ namespace AIBridge.Editor
                 }
                 else
                 {
-                    EditorUtility.DisplayDialog("提示", "请先选择一个脚本", "确定");
+                    EditorUtility.DisplayDialog(
+                        AIBridgeEditorText.T("Notice", "提示"),
+                        AIBridgeEditorText.T("Select a script first.", "请先选择一个脚本"),
+                        AIBridgeEditorText.T("OK", "确定"));
                 }
             }
             GUI.enabled = true;
 
             GUI.enabled = ScriptExecution.ScriptExecutor.IsExecuting;
-            if (GUILayout.Button("暂停"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Pause", "暂停")))
             {
                 ScriptExecution.ScriptExecutor.Pause();
             }
             
-            if (GUILayout.Button("恢复"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Resume", "恢复")))
             {
                 ScriptExecution.ScriptExecutor.Resume();
             }
             
-            if (GUILayout.Button("停止"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Stop", "停止")))
             {
                 ScriptExecution.ScriptExecutor.Stop();
             }
@@ -156,35 +159,35 @@ namespace AIBridge.Editor
 
         private void DrawExecutionStatus()
         {
-            EditorGUILayout.LabelField("执行状态", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Execution Status", "执行状态"), EditorStyles.boldLabel);
             
             var state = ScriptExecution.ScriptExecutor.CurrentState;
             
             EditorGUILayout.BeginVertical(GUI.skin.box);
             
-            EditorGUILayout.LabelField("状态", state.Status.ToString());
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Status", "状态"), state.Status.ToString());
             
             if (!string.IsNullOrEmpty(state.ScriptPath))
             {
-                EditorGUILayout.LabelField("当前脚本", Path.GetFileName(state.ScriptPath));
-                EditorGUILayout.LabelField("执行进度", $"{state.CurrentLine + 1} 行");
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("Current Script", "当前脚本"), Path.GetFileName(state.ScriptPath));
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("Progress", "执行进度"), AIBridgeEditorText.T($"Line {state.CurrentLine + 1}", $"{state.CurrentLine + 1} 行"));
             }
             
             if (!string.IsNullOrEmpty(state.StartTime))
             {
-                EditorGUILayout.LabelField("开始时间", state.StartTime);
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("Start Time", "开始时间"), state.StartTime);
             }
             
             if (!string.IsNullOrEmpty(state.ErrorMessage))
             {
-                EditorGUILayout.HelpBox($"错误: {state.ErrorMessage}", MessageType.Error);
+                EditorGUILayout.HelpBox(AIBridgeEditorText.T($"Error: {state.ErrorMessage}", $"错误: {state.ErrorMessage}"), MessageType.Error);
             }
             
             EditorGUILayout.EndVertical();
             
             // 日志输出
             EditorGUILayout.Space(5);
-            EditorGUILayout.LabelField("执行日志", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Execution Logs", "执行日志"), EditorStyles.boldLabel);
             
             _scriptLogScrollPosition = EditorGUILayout.BeginScrollView(_scriptLogScrollPosition, GUI.skin.box, GUILayout.Height(150));
             
@@ -197,7 +200,7 @@ namespace AIBridge.Editor
             }
             else
             {
-                EditorGUILayout.LabelField("暂无日志", EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("No logs", "暂无日志"), EditorStyles.centeredGreyMiniLabel);
             }
             
             EditorGUILayout.EndScrollView();
@@ -222,7 +225,7 @@ namespace AIBridge.Editor
             var files = Directory.GetFiles(_scriptDirectory, "*.txt", SearchOption.AllDirectories);
             _scriptFiles.AddRange(files);
             
-            Debug.Log($"[AIBridge] 找到 {_scriptFiles.Count} 个脚本文件");
+            Debug.Log(AIBridgeEditorText.T($"[AIBridge] Found {_scriptFiles.Count} script file(s)", $"[AIBridge] 找到 {_scriptFiles.Count} 个脚本文件"));
         }
 
         private void ExecuteScript(string scriptPath)
@@ -231,13 +234,16 @@ namespace AIBridge.Editor
             var error = ScriptExecution.ScriptParser.Validate(scriptPath);
             if (!string.IsNullOrEmpty(error))
             {
-                EditorUtility.DisplayDialog("脚本验证失败", error, "确定");
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Script Validation Failed", "脚本验证失败"),
+                    error,
+                    AIBridgeEditorText.T("OK", "确定"));
                 return;
             }
             
             // 执行脚本
             ScriptExecution.ScriptExecutor.Execute(scriptPath);
-            Debug.Log($"[AIBridge] 开始执行脚本: {scriptPath}");
+            Debug.Log(AIBridgeEditorText.T($"[AIBridge] Started script: {scriptPath}", $"[AIBridge] 开始执行脚本: {scriptPath}"));
         }
 
         private void CreateDefaultScriptDirectory()
@@ -247,14 +253,15 @@ namespace AIBridge.Editor
             if (!Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
-                Debug.Log($"[AIBridge] 创建脚本目录: {directory}");
+                Debug.Log(AIBridgeEditorText.T($"[AIBridge] Created script directory: {directory}", $"[AIBridge] 创建脚本目录: {directory}"));
             }
             
             // 创建示例脚本
             var exampleScriptPath = Path.Combine(directory, "example.txt");
             if (!File.Exists(exampleScriptPath))
             {
-                var exampleContent = @"# AIBridge 脚本示例
+                var exampleContent = AIBridgeProjectSettings.Instance.EditorLanguage == AIBridgeEditorLanguage.SimplifiedChinese
+                    ? @"# AIBridge 脚本示例
 # 这是一个简单的示例脚本，演示基本命令用法
 
 # 输出日志
@@ -273,9 +280,29 @@ delay 1000
 # menu Assets/Refresh
 
 log ""示例脚本执行完成""
+"
+                    : @"# AIBridge script example
+# This simple example demonstrates basic command usage.
+
+# Output a log
+log ""Start running example script""
+
+# Delay for 1 second
+delay 1000
+
+# Call an AIBridge CLI command (example: get scene hierarchy)
+# call scene get_hierarchy --depth 2
+
+# Call an AIBridge CLI command (example: compile Unity)
+# call compile unity
+
+# Execute an editor menu item (example: refresh assets)
+# menu Assets/Refresh
+
+log ""Example script completed""
 ";
                 File.WriteAllText(exampleScriptPath, exampleContent);
-                Debug.Log($"[AIBridge] 创建示例脚本: {exampleScriptPath}");
+                Debug.Log(AIBridgeEditorText.T($"[AIBridge] Created example script: {exampleScriptPath}", $"[AIBridge] 创建示例脚本: {exampleScriptPath}"));
             }
             
             _scriptDirectory = directory;
@@ -284,7 +311,10 @@ log ""示例脚本执行完成""
             RefreshScriptList();
             AssetDatabase.Refresh();
             
-            EditorUtility.DisplayDialog("成功", $"已创建脚本目录和示例脚本:\n{directory}", "确定");
+            EditorUtility.DisplayDialog(
+                AIBridgeEditorText.T("Success", "成功"),
+                AIBridgeEditorText.T($"Created script directory and example script:\n{directory}", $"已创建脚本目录和示例脚本:\n{directory}"),
+                AIBridgeEditorText.T("OK", "确定"));
         }
 
         private static string ReadScriptDirectory(string key, string defaultValue)

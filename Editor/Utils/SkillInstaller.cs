@@ -64,6 +64,16 @@ namespace AIBridge.Editor
         {
             try
             {
+                if (IsAssetImportWorker())
+                {
+                    return;
+                }
+
+                if (!EnsureEditorLanguageInitialized())
+                {
+                    return;
+                }
+
                 // 检查是否启用自动安装
                 if (!AIBridgeProjectSettings.Instance.AutoInstallSkills)
                 {
@@ -89,6 +99,61 @@ namespace AIBridge.Editor
             {
                 AIBridgeLogger.LogError($"[SkillInstaller] Failed to install skill documentation: {ex.Message}");
             }
+        }
+
+        private static bool EnsureEditorLanguageInitialized()
+        {
+            var settings = AIBridgeProjectSettings.Instance;
+            if (settings.EditorLanguageInitialized)
+            {
+                return true;
+            }
+
+            if (Application.isBatchMode)
+            {
+                settings.EditorLanguage = AIBridgeEditorLanguage.English;
+                settings.EditorLanguageInitialized = true;
+                settings.SaveSettings();
+                return true;
+            }
+
+            if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+            {
+                EditorApplication.delayCall += InstallSkillIfNeeded;
+                return false;
+            }
+
+            settings.EditorLanguage = ShowInitialLanguageDialog();
+            settings.EditorLanguageInitialized = true;
+            settings.SaveSettings();
+            return true;
+        }
+
+        private static bool IsAssetImportWorker()
+        {
+            var args = Environment.GetCommandLineArgs();
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "-name", StringComparison.OrdinalIgnoreCase)
+                    && i + 1 < args.Length
+                    && args[i + 1].StartsWith("AssetImportWorker", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static AIBridgeEditorLanguage ShowInitialLanguageDialog()
+        {
+            var result = EditorUtility.DisplayDialog(
+                "AIBridge Language / 语言",
+                "Choose the language for AIBridge editor UI and project AGENTS.md template.\n\n请选择 AIBridge 编辑器界面和项目 AGENTS.md 模板使用的语言。",
+                "English",
+                "简体中文");
+
+            return result ? AIBridgeEditorLanguage.English : AIBridgeEditorLanguage.SimplifiedChinese;
         }
         
         /// <summary>
@@ -489,6 +554,7 @@ namespace AIBridge.Editor
         private static Dictionary<string, string> BuildTemplateTokens(string projectRoot, AssistantIntegrationTarget target)
         {
             var cliExeName = GetCliExecutableName();
+            var language = AIBridgeProjectSettings.Instance.EditorLanguage;
             var skillDocPath = target.SupportsSkillDirectory
                 ? "/" + target.GetResolvedSkillFileRelativePath(projectRoot)
                 : "/Packages/" + PACKAGE_NAME + "/Skill~/" + SKILL_FILE_NAME;
@@ -510,22 +576,28 @@ namespace AIBridge.Editor
                 { "PREFAB_PATCH_SKILL_DOC_PATH", prefabPatchSkillDocPath },
                 { "WORKFLOW_SKILL_DOC_PATH", workflowSkillDocPath },
                 { "BATCH_SCRIPT_SKILL_DOC_PATH", batchScriptSkillDocPath },
-                { "SKILL_INDEX", BuildSkillIndex(workflowSkillDocPath, skillDocPath, prefabPatchSkillDocPath, batchScriptSkillDocPath) },
+                { "SKILL_INDEX", BuildSkillIndex(language, workflowSkillDocPath, skillDocPath, prefabPatchSkillDocPath, batchScriptSkillDocPath) },
+                { "COMMON_COMMANDS_TITLE", AIBridgeEditorText.For(language, "Common Commands", "常用命令") },
+                { "ROUTING_TITLE", AIBridgeEditorText.For(language, "Routing Rules", "路由原则") },
+                { "QUICK_TASK_RULE", AIBridgeEditorText.For(language, "Quick tasks: answer or execute directly for pure Q&A, code explanation, search/display, or tasks with no code or asset changes.", "快速任务：纯问答、代码解释、查找、显示、无代码或资源修改，直接回答或执行。") },
+                { "DEVELOPMENT_TASK_RULE", AIBridgeEditorText.For(language, "Development tasks: creating, modifying, fixing, refactoring C# code, Unity assets, Prefabs, Editor tools, package structure, tests, AGENTS.md, or Skills must load `aibridge-development-workflow` first.", "开发任务：创建、修改、修复、重构 C# 代码、Unity 资源、Prefab、Editor 工具、包结构、测试、AGENTS.md 或 Skills，必须优先加载 `aibridge-development-workflow`。") },
+                { "WORKFLOW_SKILL_RULE", AIBridgeEditorText.For(language, "After entering the standard development workflow, `aibridge-development-workflow` decides whether to load additional Skills in Skills matching mode.", "进入标准开发工作流后，由 `aibridge-development-workflow` 在 `【Skills 匹配模式】` 决定是否继续加载其它 Skill。") },
+                { "SKILL_INDEX_TITLE", AIBridgeEditorText.For(language, "Skill Index", "Skill 索引") },
                 { "PROJECT_ROOT_RULE_FILE", target.RootRuleFileName },
                 { "ASSISTANT_NAME", target.DisplayName },
                 { "PROJECT_ROOT", projectRoot }
             };
         }
 
-        private static string BuildSkillIndex(string workflowSkillDocPath, string skillDocPath, string prefabPatchSkillDocPath, string batchScriptSkillDocPath)
+        private static string BuildSkillIndex(AIBridgeEditorLanguage language, string workflowSkillDocPath, string skillDocPath, string prefabPatchSkillDocPath, string batchScriptSkillDocPath)
         {
             var builder = new StringBuilder();
-            builder.AppendLine("| Skill | 匹配关键词 | 文档 |");
+            builder.AppendLine(AIBridgeEditorText.For(language, "| Skill | Keywords | Document |", "| Skill | 匹配关键词 | 文档 |"));
             builder.AppendLine("|---|---|---|");
-            builder.AppendLine("| `aibridge-development-workflow` | 开发、修改、修复、重构、验证、测试、AGENTS、Skill、Editor 工具、包结构、Unity 资源 | `" + workflowSkillDocPath + "` |");
-            builder.AppendLine("| `aibridge` | CLI、编译、日志、Console、asset、scene、gameobject、inspector、selection、transform、screenshot、test、focus | `" + skillDocPath + "` |");
-            builder.AppendLine("| `aibridge-prefab-patch` | 复杂 Prefab、prefab patch、dryRun、批量 SerializedProperty、ensure_child、ensure_component、数组、引用写入 | `" + prefabPatchSkillDocPath + "` |");
-            builder.AppendLine("| `aibridge-batch-script` | batch、multi、批处理、脚本自动化、stdin、delay、call、menu、长脚本 | `" + batchScriptSkillDocPath + "` |");
+            builder.AppendLine("| `aibridge-development-workflow` | " + AIBridgeEditorText.For(language, "develop, modify, fix, refactor, validate, test, AGENTS, Skill, Editor tools, package structure, Unity assets", "开发、修改、修复、重构、验证、测试、AGENTS、Skill、Editor 工具、包结构、Unity 资源") + " | `" + workflowSkillDocPath + "` |");
+            builder.AppendLine("| `aibridge` | " + AIBridgeEditorText.For(language, "CLI, compile, logs, Console, asset, scene, gameobject, inspector, selection, transform, screenshot, test, focus", "CLI、编译、日志、Console、asset、scene、gameobject、inspector、selection、transform、screenshot、test、focus") + " | `" + skillDocPath + "` |");
+            builder.AppendLine("| `aibridge-prefab-patch` | " + AIBridgeEditorText.For(language, "complex Prefab, prefab patch, dryRun, batch SerializedProperty, ensure_child, ensure_component, arrays, reference writes", "复杂 Prefab、prefab patch、dryRun、批量 SerializedProperty、ensure_child、ensure_component、数组、引用写入") + " | `" + prefabPatchSkillDocPath + "` |");
+            builder.AppendLine("| `aibridge-batch-script` | " + AIBridgeEditorText.For(language, "batch, multi, batch processing, script automation, stdin, delay, call, menu, long scripts", "batch、multi、批处理、脚本自动化、stdin、delay、call、menu、长脚本") + " | `" + batchScriptSkillDocPath + "` |");
             return builder.ToString().TrimEnd();
         }
 
@@ -564,8 +636,9 @@ namespace AIBridge.Editor
 
         private static string BuildManualInstallSummary(IEnumerable<AssistantIntegrationResult> results)
         {
+            var language = AIBridgeProjectSettings.Instance.EditorLanguage;
             var builder = new StringBuilder();
-            builder.AppendLine("AIBridge integrations updated:");
+            builder.AppendLine(AIBridgeEditorText.For(language, "AIBridge integrations updated:", "AIBridge 集成已更新："));
             builder.AppendLine();
 
             foreach (var result in results)
@@ -577,13 +650,13 @@ namespace AIBridge.Editor
                 }
                 foreach (var additionalSkillPath in result.AdditionalSkillFilePaths)
                 {
-                    builder.AppendLine("- Additional Skill: " + additionalSkillPath);
+                    builder.AppendLine(AIBridgeEditorText.For(language, "- Additional Skill: ", "- 附加 Skill：") + additionalSkillPath);
                 }
-                builder.AppendLine("- Rule: " + result.RootRuleAction + FormatPathSuffix(result.RootRuleFilePath));
+                builder.AppendLine(AIBridgeEditorText.For(language, "- Rule: ", "- 规则：") + result.RootRuleAction + FormatPathSuffix(result.RootRuleFilePath));
                 builder.AppendLine();
             }
 
-            builder.Append("CLI copied to: ").Append(CLI_CACHE_FOLDER);
+            builder.Append(AIBridgeEditorText.For(language, "CLI copied to: ", "CLI 已复制到：")).Append(CLI_CACHE_FOLDER);
             return builder.ToString();
         }
 
@@ -674,18 +747,21 @@ namespace AIBridge.Editor
                 var targets = GetSelectedTargets(projectRoot);
                 if (targets.Count == 0)
                 {
-                    EditorUtility.DisplayDialog("AIBridge", "No assistant tools selected for installation. Open AIBridge/Settings and choose at least one tool.", "OK");
+                    EditorUtility.DisplayDialog(
+                        "AIBridge",
+                        AIBridgeEditorText.T("No assistant tools selected for installation. Open AIBridge/Settings and choose at least one tool.", "未选择要安装的 AI 工具。请打开 AIBridge/Settings 并至少选择一个工具。"),
+                        AIBridgeEditorText.T("OK", "确定"));
                     return;
                 }
 
                 CopyCliToCacheIfNeeded(projectRoot);
                 var results = InstallAssistantIntegrations(projectRoot, targets);
                 LogResults(results);
-                EditorUtility.DisplayDialog("AIBridge", BuildManualInstallSummary(results), "OK");
+                EditorUtility.DisplayDialog("AIBridge", BuildManualInstallSummary(results), AIBridgeEditorText.T("OK", "确定"));
             }
             catch (Exception ex)
             {
-                EditorUtility.DisplayDialog("AIBridge", $"Failed to install: {ex.Message}", "OK");
+                EditorUtility.DisplayDialog("AIBridge", AIBridgeEditorText.T($"Failed to install: {ex.Message}", $"安装失败：{ex.Message}"), AIBridgeEditorText.T("OK", "确定"));
             }
         }
 
@@ -697,7 +773,10 @@ namespace AIBridge.Editor
                 var targets = GetTargetsByIds(targetIds);
                 if (targets.Count == 0)
                 {
-                    EditorUtility.DisplayDialog("AIBridge", "No assistant tools selected for installation.", "OK");
+                    EditorUtility.DisplayDialog(
+                        "AIBridge",
+                        AIBridgeEditorText.T("No assistant tools selected for installation.", "未选择要安装的 AI 工具。"),
+                        AIBridgeEditorText.T("OK", "确定"));
                     return;
                 }
 
@@ -710,11 +789,11 @@ namespace AIBridge.Editor
                 CopyCliToCacheIfNeeded(projectRoot);
                 var results = InstallAssistantIntegrations(projectRoot, targets);
                 LogResults(results);
-                EditorUtility.DisplayDialog("AIBridge", BuildManualInstallSummary(results), "OK");
+                EditorUtility.DisplayDialog("AIBridge", BuildManualInstallSummary(results), AIBridgeEditorText.T("OK", "确定"));
             }
             catch (Exception ex)
             {
-                EditorUtility.DisplayDialog("AIBridge", $"Failed to install: {ex.Message}", "OK");
+                EditorUtility.DisplayDialog("AIBridge", AIBridgeEditorText.T($"Failed to install: {ex.Message}", $"安装失败：{ex.Message}"), AIBridgeEditorText.T("OK", "确定"));
             }
         }
     }

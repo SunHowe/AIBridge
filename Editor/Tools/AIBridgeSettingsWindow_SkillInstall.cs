@@ -12,14 +12,16 @@ namespace AIBridge.Editor
     {
         private void DrawAssistantIntegrationSettings()
         {
-            EditorGUILayout.LabelField("Skill Installation", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Skill Installation", "Skills 安装"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Select which supported AI tools should receive AIBridge skill installation. Detected tools are selected by default on first use.",
+                AIBridgeEditorText.T(
+                    "Select which supported AI tools should receive AIBridge skill installation. Detected tools are selected by default on first use.",
+                    "选择要安装 AIBridge Skill 的 AI 工具。首次使用时会默认勾选已检测到的工具。"),
                 MessageType.Info);
 
             // 自动安装开关
             EditorGUI.BeginChangeCheck();
-            var autoInstall = EditorGUILayout.Toggle("自动安装 Skills", AIBridgeProjectSettings.Instance.AutoInstallSkills);
+            var autoInstall = EditorGUILayout.Toggle(AIBridgeEditorText.T("Auto Install Skills", "自动安装 Skills"), AIBridgeProjectSettings.Instance.AutoInstallSkills);
             if (EditorGUI.EndChangeCheck())
             {
                 AIBridgeProjectSettings.Instance.AutoInstallSkills = autoInstall;
@@ -45,7 +47,9 @@ namespace AIBridge.Editor
                     AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, selected);
                 }
 
-                var status = selection.IsDetected ? "Detected" : "Not detected";
+                var status = selection.IsDetected
+                    ? AIBridgeEditorText.T("Detected", "已检测到")
+                    : AIBridgeEditorText.T("Not detected", "未检测到");
                 EditorGUILayout.LabelField(status + ": " + selection.Detail, EditorStyles.miniLabel);
                 DrawSkillRootDirectoryField(selection);
 
@@ -54,17 +58,17 @@ namespace AIBridge.Editor
 
             EditorGUILayout.BeginHorizontal();
 
-            if (GUILayout.Button("Select Detected"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Select Detected", "选择已检测到")))
             {
                 SelectDetectedTools();
             }
 
-            if (GUILayout.Button("Select All"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Select All", "全选")))
             {
                 SelectAllTools();
             }
 
-            if (GUILayout.Button("Clear"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Clear", "清空")))
             {
                 ClearToolSelection();
             }
@@ -72,10 +76,10 @@ namespace AIBridge.Editor
             EditorGUILayout.EndHorizontal();
 
             var selectedCount = _assistantIntegrationSelections.Count(selection => selection.IsSelected);
-            EditorGUILayout.LabelField($"{selectedCount} tool(s) selected", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T($"{selectedCount} tool(s) selected", $"已选择 {selectedCount} 个工具"), EditorStyles.miniLabel);
 
             EditorGUI.BeginDisabledGroup(selectedCount == 0);
-            if (GUILayout.Button("Install Selected Integrations", GUILayout.Height(30)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Install Selected Integrations", "安装选中集成"), GUILayout.Height(30)))
             {
                 InstallSelectedTools();
             }
@@ -83,18 +87,24 @@ namespace AIBridge.Editor
 
             if (selectedCount == 0)
             {
-                EditorGUILayout.HelpBox("Select at least one tool to install AIBridge integrations.", MessageType.Warning);
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Select at least one tool to install AIBridge integrations.",
+                        "至少选择一个工具才能安装 AIBridge 集成。"),
+                    MessageType.Warning);
             }
 
             EditorGUILayout.Space(10);
 
             // 安装 Unity 项目 AGENTS.md 模板按钮
-            EditorGUILayout.LabelField("Unity 项目 AGENTS.md 模板", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Unity Project AGENTS.md Template", "Unity 项目 AGENTS.md 模板"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "安装面向 Unity 项目的 AGENTS.md 模板到项目根目录，方便初次使用者更好地使用 AIBridge。\n安装后会自动执行一次 Skills 安装。",
+                AIBridgeEditorText.T(
+                    "Install the Unity project AGENTS.md template to the project root. This also runs Skill installation once.",
+                    "安装面向 Unity 项目的 AGENTS.md 模板到项目根目录，方便初次使用者更好地使用 AIBridge。\n安装后会自动执行一次 Skills 安装。"),
                 MessageType.Info);
 
-            if (GUILayout.Button("安装 Unity 项目 AGENTS.md 模板", GUILayout.Height(30)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Install Unity Project AGENTS.md Template", "安装 Unity 项目 AGENTS.md 模板"), GUILayout.Height(30)))
             {
                 InstallAgentsFile();
             }
@@ -132,29 +142,29 @@ namespace AIBridge.Editor
             EditorGUILayout.BeginHorizontal();
 
             EditorGUI.BeginChangeCheck();
-            var newDirectory = EditorGUILayout.DelayedTextField("Skills 根目录", selection.SkillRootDirectory);
+            var newDirectory = EditorGUILayout.DelayedTextField(AIBridgeEditorText.T("Skills Root Directory", "Skills 根目录"), selection.SkillRootDirectory);
             if (EditorGUI.EndChangeCheck())
             {
                 SetSkillRootDirectory(selection, newDirectory);
             }
 
-            if (GUILayout.Button("Browse", GUILayout.Width(64)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Browse", "浏览"), GUILayout.Width(64)))
             {
                 BrowseSkillRootDirectory(selection);
             }
 
-            if (GUILayout.Button("Open", GUILayout.Width(52)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(52)))
             {
                 OpenSkillRootDirectory(selection);
             }
 
-            if (GUILayout.Button("Reset", GUILayout.Width(52)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset", "重置"), GUILayout.Width(52)))
             {
                 ResetSkillRootDirectory(selection);
             }
 
             EditorGUILayout.EndHorizontal();
-            EditorGUILayout.LabelField("将安装到: " + BuildSkillInstallPreview(selection), EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Install to: ", "将安装到: ") + BuildSkillInstallPreview(selection), EditorStyles.miniLabel);
         }
 
         private void SetSkillRootDirectory(AssistantIntegrationSelectionState selection, string directory)
@@ -168,7 +178,10 @@ namespace AIBridge.Editor
 
             if (!IsValidProjectRelativeDirectory(normalized))
             {
-                EditorUtility.DisplayDialog("无效目录", "Skills 根目录必须是项目内相对路径。", "确定");
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Invalid Directory", "无效目录"),
+                    AIBridgeEditorText.T("The Skills root directory must be a project-relative path.", "Skills 根目录必须是项目内相对路径。"),
+                    AIBridgeEditorText.T("OK", "确定"));
                 selection.SkillRootDirectory = selection.Target.GetResolvedSkillRootDirectoryRelativePath(GetProjectRoot());
                 return;
             }
@@ -185,7 +198,7 @@ namespace AIBridge.Editor
         {
             var projectRoot = GetProjectRoot();
             var currentDirectory = Path.Combine(projectRoot, selection.SkillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
-            var selectedDirectory = EditorUtility.OpenFolderPanel("选择 Skills 根目录", currentDirectory, string.Empty);
+            var selectedDirectory = EditorUtility.OpenFolderPanel(AIBridgeEditorText.T("Select Skills Root Directory", "选择 Skills 根目录"), currentDirectory, string.Empty);
             if (string.IsNullOrEmpty(selectedDirectory))
             {
                 return;
@@ -194,7 +207,10 @@ namespace AIBridge.Editor
             string relativeDirectory;
             if (!TryMakeProjectRelativeDirectory(projectRoot, selectedDirectory, out relativeDirectory))
             {
-                EditorUtility.DisplayDialog("无效目录", "请选择项目根目录内的文件夹。", "确定");
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Invalid Directory", "无效目录"),
+                    AIBridgeEditorText.T("Select a folder inside the project root.", "请选择项目根目录内的文件夹。"),
+                    AIBridgeEditorText.T("OK", "确定"));
                 return;
             }
 
@@ -340,15 +356,15 @@ namespace AIBridge.Editor
         /// <summary>
         /// 获取 Unity 项目 AGENTS.md 模板路径（兼容 Packages 和 PackageCache）
         /// </summary>
-        private static string GetSourceAgentsPath()
+        internal static string GetSourceAgentsPath()
         {
             const string PACKAGE_NAME = "cn.lys.aibridge";
             const string AGENTS_FILE_NAME = "AGENTS.md";
-            const string PROJECT_TEMPLATE_RELATIVE_PATH = "Templates~/ProjectRules/AGENTS.md";
+            var projectTemplateRelativePath = GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage);
             var projectRoot = Path.GetDirectoryName(Application.dataPath);
 
             // 方法 1: 直接从 Packages 目录查找（本地/嵌入式包）
-            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, PROJECT_TEMPLATE_RELATIVE_PATH.Replace('/', Path.DirectorySeparatorChar));
+            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, projectTemplateRelativePath.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(directPath))
             {
                 return directPath;
@@ -358,7 +374,7 @@ namespace AIBridge.Editor
             var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath($"Packages/{PACKAGE_NAME}");
             if (packageInfo != null)
             {
-                var packagePath = Path.Combine(packageInfo.resolvedPath, PROJECT_TEMPLATE_RELATIVE_PATH.Replace('/', Path.DirectorySeparatorChar));
+                var packagePath = Path.Combine(packageInfo.resolvedPath, projectTemplateRelativePath.Replace('/', Path.DirectorySeparatorChar));
                 if (File.Exists(packagePath))
                 {
                     return packagePath;
@@ -382,6 +398,13 @@ namespace AIBridge.Editor
             }
 
             return null;
+        }
+
+        internal static string GetProjectAgentsTemplateRelativePath(AIBridgeEditorLanguage language)
+        {
+            return language == AIBridgeEditorLanguage.SimplifiedChinese
+                ? "Templates~/ProjectRules/AGENTS.zh-CN.md"
+                : "Templates~/ProjectRules/AGENTS.en-US.md";
         }
 
         private static bool IsLegacyProjectAgentsTemplate(string path)
@@ -414,10 +437,10 @@ namespace AIBridge.Editor
             if (File.Exists(targetPath))
             {
                 if (!EditorUtility.DisplayDialog(
-                    "确认覆盖",
-                    "项目根目录已存在 AGENTS.md 文件，是否覆盖？",
-                    "覆盖",
-                    "取消"))
+                    AIBridgeEditorText.T("Confirm Overwrite", "确认覆盖"),
+                    AIBridgeEditorText.T("AGENTS.md already exists in the project root. Overwrite it?", "项目根目录已存在 AGENTS.md 文件，是否覆盖？"),
+                    AIBridgeEditorText.T("Overwrite", "覆盖"),
+                    AIBridgeEditorText.T("Cancel", "取消")))
                 {
                     return;
                 }
@@ -428,9 +451,11 @@ namespace AIBridge.Editor
             if (string.IsNullOrEmpty(sourcePath))
             {
                 EditorUtility.DisplayDialog(
-                    "安装失败",
-                    "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：Packages/cn.lys.aibridge/Templates~/ProjectRules/AGENTS.md",
-                    "确定");
+                    AIBridgeEditorText.T("Install Failed", "安装失败"),
+                    AIBridgeEditorText.T(
+                        "Unity project AGENTS.md template was not found.\nExpected location: Packages/cn.lys.aibridge/" + GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage),
+                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：Packages/cn.lys.aibridge/" + GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage)),
+                    AIBridgeEditorText.T("OK", "确定"));
                 return;
             }
 
@@ -438,22 +463,24 @@ namespace AIBridge.Editor
             {
                 // 拷贝文件
                 File.Copy(sourcePath, targetPath, true);
-                Debug.Log($"[AIBridge] AGENTS.md 已安装到: {targetPath}");
+                Debug.Log(AIBridgeEditorText.T($"[AIBridge] AGENTS.md installed to: {targetPath}", $"[AIBridge] AGENTS.md 已安装到: {targetPath}"));
 
                 // 自动执行 Skills 安装
                 InstallSelectedTools();
 
                 EditorUtility.DisplayDialog(
-                    "安装成功",
-                    "Unity 项目 AGENTS.md 模板已成功安装到项目根目录。\n\n已自动执行 Skills 安装。",
-                    "确定");
+                    AIBridgeEditorText.T("Install Complete", "安装成功"),
+                    AIBridgeEditorText.T(
+                        "Unity project AGENTS.md template was installed to the project root.\n\nSkill installation has also run once.",
+                        "Unity 项目 AGENTS.md 模板已成功安装到项目根目录。\n\n已自动执行 Skills 安装。"),
+                    AIBridgeEditorText.T("OK", "确定"));
             }
             catch (Exception ex)
             {
                 EditorUtility.DisplayDialog(
-                    "安装失败",
-                    $"拷贝 AGENTS.md 时发生错误：\n{ex.Message}",
-                    "确定");
+                    AIBridgeEditorText.T("Install Failed", "安装失败"),
+                    AIBridgeEditorText.T($"Failed to copy AGENTS.md:\n{ex.Message}", $"拷贝 AGENTS.md 时发生错误：\n{ex.Message}"),
+                    AIBridgeEditorText.T("OK", "确定"));
             }
         }
     }

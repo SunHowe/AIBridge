@@ -50,7 +50,7 @@ namespace AIBridge.Editor
         private static void OpenWindow()
         {
             var window = GetWindow<AIBridgeSettingsWindow>();
-            window.titleContent = new GUIContent("AI Bridge Settings");
+            window.titleContent = new GUIContent(AIBridgeEditorText.T("AI Bridge Settings", "AI Bridge 设置"));
             window.minSize = new Vector2(400, 500);
             window.Show();
         }
@@ -83,6 +83,7 @@ namespace AIBridge.Editor
 
         private void OnGUI()
         {
+            titleContent = new GUIContent(AIBridgeEditorText.T("AI Bridge Settings", "AI Bridge 设置"));
             DrawHeader();
             EditorGUILayout.Space(5);
 
@@ -123,96 +124,133 @@ namespace AIBridge.Editor
 
         private void DrawTabToolbar()
         {
-            var tabNames = new[] { "基础设置", "GIF 设置", "日志设置", "目录信息", "Skills 安装", "脚本执行", "操作" };
+            var tabNames = new[]
+            {
+                AIBridgeEditorText.T("Basic", "基础设置"),
+                AIBridgeEditorText.T("GIF", "GIF 设置"),
+                AIBridgeEditorText.T("Logs", "日志设置"),
+                AIBridgeEditorText.T("Directories", "目录信息"),
+                AIBridgeEditorText.T("Skills", "Skills 安装"),
+                AIBridgeEditorText.T("Scripts", "脚本执行"),
+                AIBridgeEditorText.T("Actions", "操作")
+            };
             _currentTab = (TabType)GUILayout.Toolbar((int)_currentTab, tabNames);
         }
 
         private void DrawHeader()
         {
-            EditorGUILayout.LabelField("AI Bridge Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("AI Bridge Settings", "AI Bridge 设置"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "AI Bridge enables communication between AI assistants and Unity Editor.\n" +
-                "Use F12 to capture screenshots and F11 to record GIFs in Play mode.",
+                AIBridgeEditorText.T(
+                    "AI Bridge enables communication between AI assistants and Unity Editor.\nUse F12 to capture screenshots and F11 to record GIFs in Play mode.",
+                    "AI Bridge 用于在 AI 助手和 Unity Editor 之间建立通信。\nPlay 模式下可用 F12 截图，F11 录制 GIF。"),
                 MessageType.Info);
         }
 
         private void DrawBridgeSettings()
         {
-            EditorGUILayout.LabelField("Bridge Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Bridge Settings", "Bridge 设置"), EditorStyles.boldLabel);
+
+            DrawLanguageSetting();
 
             EditorGUI.BeginChangeCheck();
-            _bridgeEnabled = EditorGUILayout.Toggle("Bridge Enabled", _bridgeEnabled);
+            _bridgeEnabled = EditorGUILayout.Toggle(AIBridgeEditorText.T("Bridge Enabled", "启用 Bridge"), _bridgeEnabled);
             if (EditorGUI.EndChangeCheck())
             {
                 AIBridge.Enabled = _bridgeEnabled;
             }
 
             EditorGUI.BeginChangeCheck();
-            _debugLogging = EditorGUILayout.Toggle("Debug Logging", _debugLogging);
+            _debugLogging = EditorGUILayout.Toggle(AIBridgeEditorText.T("Debug Logging", "调试日志"), _debugLogging);
             if (EditorGUI.EndChangeCheck())
             {
                 AIBridgeLogger.DebugEnabled = _debugLogging;
             }
         }
 
+        private void DrawLanguageSetting()
+        {
+            var settings = AIBridgeProjectSettings.Instance;
+            EditorGUI.BeginChangeCheck();
+            var selectedIndex = EditorGUILayout.Popup(
+                AIBridgeEditorText.T("Language", "语言"),
+                AIBridgeEditorText.GetLanguageIndex(settings.EditorLanguage),
+                AIBridgeEditorText.LanguageLabels);
+            if (!EditorGUI.EndChangeCheck())
+            {
+                return;
+            }
+
+            var language = AIBridgeEditorText.LanguageValues[Mathf.Clamp(selectedIndex, 0, AIBridgeEditorText.LanguageValues.Length - 1)];
+            if (settings.EditorLanguage == language && settings.EditorLanguageInitialized)
+            {
+                return;
+            }
+
+            settings.EditorLanguage = language;
+            settings.EditorLanguageInitialized = true;
+            settings.SaveSettings();
+            Repaint();
+        }
+
         private void DrawGifSettings()
         {
-            EditorGUILayout.LabelField("GIF Recording Settings (F11)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("GIF Recording Settings (F11)", "GIF 录制设置 (F11)"), EditorStyles.boldLabel);
 
-            _gifFrameCount = EditorGUILayout.IntSlider("Frame Count", _gifFrameCount, 10, GifRecorder.MaxFrameCount);
-            EditorGUILayout.LabelField($"  Duration: {(float)_gifFrameCount / _gifFps:F1}s", EditorStyles.miniLabel);
+            _gifFrameCount = EditorGUILayout.IntSlider(AIBridgeEditorText.T("Frame Count", "帧数"), _gifFrameCount, 10, GifRecorder.MaxFrameCount);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T($"  Duration: {(float)_gifFrameCount / _gifFps:F1}s", $"  时长: {(float)_gifFrameCount / _gifFps:F1}s"), EditorStyles.miniLabel);
 
             _gifFps = EditorGUILayout.IntSlider("FPS", _gifFps, 10, 30);
 
-            _gifScale = EditorGUILayout.Slider("Scale", _gifScale, 0.25f, 1f);
-            EditorGUILayout.LabelField($"  Output: {(int)(1920 * _gifScale)}x{(int)(1080 * _gifScale)} (at 1080p)", EditorStyles.miniLabel);
+            _gifScale = EditorGUILayout.Slider(AIBridgeEditorText.T("Scale", "缩放"), _gifScale, 0.25f, 1f);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T($"  Output: {(int)(1920 * _gifScale)}x{(int)(1080 * _gifScale)} (at 1080p)", $"  输出: {(int)(1920 * _gifScale)}x{(int)(1080 * _gifScale)} (按 1080p 估算)"), EditorStyles.miniLabel);
 
-            _gifColorCount = EditorGUILayout.IntSlider("Color Count", _gifColorCount, 64, 256);
+            _gifColorCount = EditorGUILayout.IntSlider(AIBridgeEditorText.T("Color Count", "颜色数量"), _gifColorCount, 64, 256);
 
-            _gifStartDelay = EditorGUILayout.Slider("Start Delay (s)", _gifStartDelay, 0f, 5f);
+            _gifStartDelay = EditorGUILayout.Slider(AIBridgeEditorText.T("Start Delay (s)", "开始延迟 (秒)"), _gifStartDelay, 0f, 5f);
 
             EditorGUILayout.Space(5);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Save GIF Settings"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Save GIF Settings", "保存 GIF 设置")))
             {
                 GifRecorderSettings.DefaultFrameCount = _gifFrameCount;
                 GifRecorderSettings.DefaultFps = _gifFps;
                 GifRecorderSettings.DefaultScale = _gifScale;
                 GifRecorderSettings.DefaultColorCount = _gifColorCount;
                 GifRecorderSettings.DefaultStartDelay = _gifStartDelay;
-                Debug.Log("[AIBridge] GIF settings saved.");
+                Debug.Log(AIBridgeEditorText.T("[AIBridge] GIF settings saved.", "[AIBridge] GIF 设置已保存。"));
             }
 
-            if (GUILayout.Button("Reset to Defaults"))
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset to Defaults", "重置为默认值")))
             {
                 GifRecorderSettings.ResetToDefaults();
                 LoadSettings();
-                Debug.Log("[AIBridge] GIF settings reset to defaults.");
+                Debug.Log(AIBridgeEditorText.T("[AIBridge] GIF settings reset to defaults.", "[AIBridge] GIF 设置已重置为默认值。"));
             }
             EditorGUILayout.EndHorizontal();
 
             if (GifRecorder.IsRecording)
             {
-                EditorGUILayout.HelpBox("GIF Recording in progress...", MessageType.Warning);
+                EditorGUILayout.HelpBox(AIBridgeEditorText.T("GIF Recording in progress...", "正在录制 GIF..."), MessageType.Warning);
             }
         }
 
         private void DrawDirectoryInfo()
         {
-            EditorGUILayout.LabelField("Directory Information", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Directory Information", "目录信息"), EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.TextField("Bridge Directory", AIBridge.BridgeDirectory);
-            if (GUILayout.Button("Open", GUILayout.Width(60)))
+            EditorGUILayout.TextField(AIBridgeEditorText.T("Bridge Directory", "Bridge 目录"), AIBridge.BridgeDirectory);
+            if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(60)))
             {
                 AIBridge.OpenBridgeDirectory();
             }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.TextField("Screenshots Directory", ScreenshotHelper.ScreenshotsDir);
-            if (GUILayout.Button("Open", GUILayout.Width(60)))
+            EditorGUILayout.TextField(AIBridgeEditorText.T("Screenshots Directory", "截图目录"), ScreenshotHelper.ScreenshotsDir);
+            if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(60)))
             {
                 ScreenshotHelper.EnsureScreenshotsDirectory();
                 EditorUtility.RevealInFinder(ScreenshotHelper.ScreenshotsDir);
@@ -222,17 +260,17 @@ namespace AIBridge.Editor
 
         private void DrawActions()
         {
-            EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Actions", "操作"), EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
 
-            if (GUILayout.Button("Process Commands Now", GUILayout.Height(30)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Process Commands Now", "立即处理命令"), GUILayout.Height(30)))
             {
                 AIBridge.ProcessCommandsNow();
-                Debug.Log("[AIBridge] Commands processed.");
+                Debug.Log(AIBridgeEditorText.T("[AIBridge] Commands processed.", "[AIBridge] 命令已处理。"));
             }
 
-            if (GUILayout.Button("Clear Screenshot Cache", GUILayout.Height(30)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Clear Screenshot Cache", "清理截图缓存"), GUILayout.Height(30)))
             {
                 ClearScreenshotCache();
             }
@@ -241,10 +279,11 @@ namespace AIBridge.Editor
 
             EditorGUILayout.Space(10);
 
-            EditorGUILayout.LabelField("Hotkeys", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Hotkeys", "快捷键"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "F12 - Capture Screenshot (Play mode only)\n" +
-                "F11 - Start/Stop GIF Recording (Play mode only)",
+                AIBridgeEditorText.T(
+                    "F12 - Capture Screenshot (Play mode only)\nF11 - Start/Stop GIF Recording (Play mode only)",
+                    "F12 - 截图（仅 Play 模式）\nF11 - 开始/停止 GIF 录制（仅 Play 模式）"),
                 MessageType.None);
         }
 

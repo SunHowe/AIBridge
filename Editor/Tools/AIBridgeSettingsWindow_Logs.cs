@@ -30,7 +30,7 @@ namespace AIBridge.Editor
 
         private void DrawLogSettingsTab()
         {
-            EditorGUILayout.LabelField("日志设置", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Log Settings", "日志设置"), EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
             DrawLogRetrievalSettings();
@@ -45,12 +45,12 @@ namespace AIBridge.Editor
         private void DrawLogRetrievalSettings()
         {
             EditorGUI.BeginChangeCheck();
-            _logTypeIndex = EditorGUILayout.Popup("默认最低日志等级", _logTypeIndex, AIBridgeProjectSettings.SupportedLogRetrievalTypeLabels);
-            _logRetrievalCount = EditorGUILayout.IntSlider("默认获取数量", _logRetrievalCount, MinLogRetrievalCount, MaxLogRetrievalCount);
-            _regexFilterEnabled = EditorGUILayout.Toggle("启用全局正则筛选", _regexFilterEnabled);
+            _logTypeIndex = EditorGUILayout.Popup(AIBridgeEditorText.T("Default Minimum Log Level", "默认最低日志等级"), _logTypeIndex, AIBridgeEditorText.LogRetrievalTypeLabels);
+            _logRetrievalCount = EditorGUILayout.IntSlider(AIBridgeEditorText.T("Default Count", "默认获取数量"), _logRetrievalCount, MinLogRetrievalCount, MaxLogRetrievalCount);
+            _regexFilterEnabled = EditorGUILayout.Toggle(AIBridgeEditorText.T("Enable Global Regex Filter", "启用全局正则筛选"), _regexFilterEnabled);
             using (new EditorGUI.DisabledScope(!_regexFilterEnabled))
             {
-                _regexPattern = EditorGUILayout.TextField("日志内容正则", _regexPattern);
+                _regexPattern = EditorGUILayout.TextField(AIBridgeEditorText.T("Log Message Regex", "日志内容正则"), _regexPattern);
             }
 
             if (EditorGUI.EndChangeCheck())
@@ -59,40 +59,44 @@ namespace AIBridge.Editor
             }
 
             EditorGUILayout.HelpBox(
-                "这里按最低等级筛选：Info 及以上包含 Info、Warning、Error；Warning 及以上包含 Warning、Error；Error 只包含 Error。CLI 显式传入 --logType 时仍按指定类型精确筛选。",
+                AIBridgeEditorText.T(
+                    "Filters by minimum level: Info includes Info, Warning, and Error; Warning includes Warning and Error; Error includes only Error. When CLI passes --logType explicitly, that type is used exactly.",
+                    "这里按最低等级筛选：Info 及以上包含 Info、Warning、Error；Warning 及以上包含 Warning、Error；Error 只包含 Error。CLI 显式传入 --logType 时仍按指定类型精确筛选。"),
                 MessageType.Info);
 
             EditorGUILayout.HelpBox(
-                "开启全局正则筛选后，未显式传入 --regex 的 get_logs 也会按日志内容正则过滤。",
+                AIBridgeEditorText.T(
+                    "When global regex filtering is enabled, get_logs without an explicit --regex also filters by this log message regex.",
+                    "开启全局正则筛选后，未显式传入 --regex 的 get_logs 也会按日志内容正则过滤。"),
                 MessageType.Info);
         }
 
         private void DrawLogPreviewActions()
         {
-            EditorGUILayout.LabelField("日志预览", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Log Preview", "日志预览"), EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("获取日志", GUILayout.Height(24)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Fetch Logs", "获取日志"), GUILayout.Height(24)))
             {
                 RefreshLogPreview();
             }
 
-            if (GUILayout.Button("只看 Error", GUILayout.Height(24)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Errors Only", "只看 Error"), GUILayout.Height(24)))
             {
                 _logTypeIndex = GetLogTypeIndex("Error");
                 SaveLogRetrievalSettings();
                 RefreshLogPreview();
             }
 
-            if (GUILayout.Button("重置默认值", GUILayout.Height(24)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset", "重置默认值"), GUILayout.Height(24)))
             {
                 ResetLogRetrievalSettings();
             }
 
-            if (GUILayout.Button("复制 CLI 示例", GUILayout.Height(24)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Copy CLI Example", "复制 CLI 示例"), GUILayout.Height(24)))
             {
                 EditorGUIUtility.systemCopyBuffer = BuildLogRetrievalCliExample();
-                Debug.Log("[AIBridge] get_logs CLI 示例已复制。");
+                Debug.Log(AIBridgeEditorText.T("[AIBridge] get_logs CLI example copied.", "[AIBridge] get_logs CLI 示例已复制。"));
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -123,7 +127,7 @@ namespace AIBridge.Editor
             }
             else
             {
-                EditorGUILayout.LabelField("暂无预览日志", EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("No preview logs", "暂无预览日志"), EditorStyles.centeredGreyMiniLabel);
             }
 
             EditorGUILayout.EndScrollView();
@@ -139,7 +143,7 @@ namespace AIBridge.Editor
 
             if (_regexFilterEnabled && !TryValidateRegex(newRegexPattern, out var regexError))
             {
-                _logPreviewError = "正则表达式无效: " + regexError;
+                _logPreviewError = AIBridgeEditorText.T("Invalid regex: ", "正则表达式无效: ") + regexError;
                 return;
             }
 
@@ -168,7 +172,7 @@ namespace AIBridge.Editor
             SaveLogRetrievalSettings();
             _logPreviewEntries.Clear();
             _logPreviewError = null;
-            Debug.Log("[AIBridge] 日志设置已重置为默认值。");
+            Debug.Log(AIBridgeEditorText.T("[AIBridge] Log settings reset to defaults.", "[AIBridge] 日志设置已重置为默认值。"));
         }
 
         private void RefreshLogPreview()
@@ -186,7 +190,7 @@ namespace AIBridge.Editor
             catch (Exception ex)
             {
                 _logPreviewEntries = new List<GetLogsCommand.LogEntry>();
-                _logPreviewError = "获取日志失败: " + ex.Message;
+                _logPreviewError = AIBridgeEditorText.T("Failed to fetch logs: ", "获取日志失败: ") + ex.Message;
             }
         }
 

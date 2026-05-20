@@ -8,3 +8,4 @@
 ## 项目验证
 - Unity 编译只能使用 `$CLI compile unity`
 - `compile dotnet` 只能作为额外检查，不能作为 Unity 编译的替代或 fallback
+

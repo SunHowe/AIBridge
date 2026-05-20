@@ -8,7 +8,7 @@
 ## 本文件职责
 本文件只用于开发 `cn.lys.aibridge` 包自身。安装到 Unity 项目根目录的示例模板位于：
 
-`Templates~/ProjectRules/AGENTS.md`
+`Templates~/ProjectRules/AGENTS.zh-CN.md` 和 `Templates~/ProjectRules/AGENTS.en-US.md`
 
 不要把 AIBridge 包内部设计规则写入项目模板，避免污染使用者项目。
 
@@ -47,7 +47,7 @@
 9. 面向用户的编辑器面板、README、HelpBox、Tooltip 可以解释功能影响、默认行为和使用说明；不要把这类用户说明混入面向 AI 的提示词
 
 ## 模板维护规则
-1. `Templates~/ProjectRules/AGENTS.md` 是安装到 Unity 项目的示例文件
+1. `Templates~/ProjectRules/AGENTS.zh-CN.md` 和 `Templates~/ProjectRules/AGENTS.en-US.md` 是安装到 Unity 项目的示例文件
 2. `Templates~/Rules/*.RootRule.md` 是注入到已有规则文件的最小引导块
 3. RootRule 只放 CLI 路径、常用命令、Skill 索引和“开发任务先加载工作流”的路由规则
 4. 完整行为规范必须放在 `aibridge-development-workflow`

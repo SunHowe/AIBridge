@@ -7,6 +7,12 @@ using UnityEngine;
 
 namespace AIBridge.Editor
 {
+    internal enum AIBridgeEditorLanguage
+    {
+        English,
+        SimplifiedChinese
+    }
+
     /// <summary>
     /// AIBridge 项目级编辑器配置，兼容 Unity 2019 的手动序列化落盘方式。
     /// </summary>
@@ -48,7 +54,8 @@ namespace AIBridge.Editor
             public string SkillRootDirectory;
         }
 
-        public const int CurrentDataVersion = 3;
+        public const int CurrentDataVersion = 4;
+        public const string DefaultEditorLanguage = "English";
         public const int DefaultGifFrameCount = 50;
         public const int DefaultGifFps = 20;
         public const float DefaultGifScale = 0.5f;
@@ -58,11 +65,12 @@ namespace AIBridge.Editor
         public const string DefaultLogRetrievalType = "all";
         public const string DefaultScriptDirectory = "Assets/AIBridgeScripts";
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
-        public static readonly string[] SupportedLogRetrievalTypeLabels = { "全部", "Info 及以上", "Warning 及以上", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
         [SerializeField] private bool bridgeEnabled = true;
         [SerializeField] private bool debugLogging;
+        [SerializeField] private string editorLanguage = DefaultEditorLanguage;
+        [SerializeField] private bool editorLanguageInitialized;
         [SerializeField] private string scriptDirectory = DefaultScriptDirectory;
         [SerializeField] private GifRecorderSettingsData gifRecorder = new GifRecorderSettingsData();
         [SerializeField] private LogRetrievalSettingsData logRetrieval = new LogRetrievalSettingsData();
@@ -101,6 +109,18 @@ namespace AIBridge.Editor
         {
             get { return debugLogging; }
             set { debugLogging = value; }
+        }
+
+        public AIBridgeEditorLanguage EditorLanguage
+        {
+            get { return NormalizeEditorLanguage(editorLanguage); }
+            set { editorLanguage = value.ToString(); }
+        }
+
+        public bool EditorLanguageInitialized
+        {
+            get { return editorLanguageInitialized; }
+            set { editorLanguageInitialized = value; }
         }
 
         public string ScriptDirectory
@@ -166,6 +186,16 @@ namespace AIBridge.Editor
             }
 
             return DefaultLogRetrievalType;
+        }
+
+        public static AIBridgeEditorLanguage NormalizeEditorLanguage(string value)
+        {
+            if (string.Equals(value, AIBridgeEditorLanguage.SimplifiedChinese.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                return AIBridgeEditorLanguage.SimplifiedChinese;
+            }
+
+            return AIBridgeEditorLanguage.English;
         }
 
         public List<AssistantSelectionEntry> AssistantSelections
@@ -380,6 +410,8 @@ namespace AIBridge.Editor
             {
                 dataVersion = CurrentDataVersion;
             }
+
+            editorLanguage = EditorLanguage.ToString();
 
             var directory = Path.GetDirectoryName(SettingsFilePath);
             if (!string.IsNullOrEmpty(directory))
