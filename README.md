@@ -72,7 +72,7 @@ Most commands use this form:
 $CLI <command> <action> [options]
 ```
 
-CLI-only helpers differ slightly: `focus` has no action, and `multi` uses `--cmd` or `--stdin`.
+CLI-only helpers differ slightly: `focus` has no action, `dialog` uses `status/click/wait`, and `multi` uses `--cmd` or `--stdin`.
 
 ## Common Commands
 
@@ -80,6 +80,8 @@ CLI-only helpers differ slightly: `focus` has no action, and `multi` uses `--cmd
 
 ```bash
 $CLI focus
+$CLI dialog status
+$CLI dialog click --choice cancel
 $CLI editor log --message "Hello" --logType Warning
 $CLI editor get_state
 $CLI compile unity
@@ -91,6 +93,8 @@ $CLI test status
 ```
 
 Use `compile unity` for Unity validation. `compile dotnet` is only an extra solution build check and is not a replacement for Unity compilation.
+
+Use `dialog status` when Unity commands time out and the Editor may be blocked by a modal save/confirm dialog. When no dialog is detected, compact JSON omits `blockedByDialog` and `dialogs`; missing fields mean no dialog. macOS dialog inspection/clicking requires Accessibility permission. Unity commands can opt into explicit timeout handling, for example `--on-dialog cancel` or `--on-dialog discard`.
 
 `get_logs` supports the Settings window defaults and optional regex filtering:
 

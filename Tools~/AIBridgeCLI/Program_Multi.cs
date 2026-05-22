@@ -67,7 +67,7 @@ namespace AIBridgeCLI
 
             // Use longer timeout for multi commands
             var actualTimeout = timeout == DEFAULT_TIMEOUT ? MULTI_COMMAND_TIMEOUT : timeout;
-            var sender = new CommandSender(actualTimeout);
+            var sender = CreateCommandSender(actualTimeout, parsed);
 
             if (noWait)
             {

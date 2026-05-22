@@ -19,16 +19,19 @@ Run commands from the Unity project root.
 - macOS/Linux DLL: `dotnet ./.aibridge/cli/AIBridgeCLI.dll <command> [action] [options]`
 - PowerShell call operator: `& "./.aibridge/cli/AIBridgeCLI.exe" <command> [action] [options]`
 
-Most Unity-side commands require an `action` such as `asset search` or `inspector set_property`. CLI-only commands and helpers can differ: `focus` has no action, while `multi` uses `--cmd` or `--stdin`. Use `--help` or the generated command reference for the exact form.
+Most Unity-side commands require an `action` such as `asset search` or `inspector set_property`. CLI-only commands and helpers can differ: `focus` has no action, `dialog` uses `status/click/wait`, and `multi` uses `--cmd` or `--stdin`. Use `--help` or the generated command reference for the exact form.
 
 **Global Options:**
 
 - `--timeout <ms>` - Timeout (default: 5000)
+- `--on-dialog <mode>` - On Unity command timeout, inspect modal dialogs and optionally click: `none`, `wait`, `cancel`, `save`, `discard`, `ok`, `yes`, `no`, `delete`, `replace`
 - `--raw` / `--pretty` - JSON output (default: raw)
 - `--json <json>` / `--stdin` - Complex parameters
 - `--help` - Show help
 
 **Cache Directory:** `.aibridge/` (commands, results, screenshots)
+
+**Dialog Output Rule:** `dialog status` omits `blockedByDialog` and `dialogs` when no blocking Unity modal dialog is detected. Missing fields mean no dialog.
 
 ## Operating Rules
 
@@ -40,7 +43,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - For prefab asset edits, use `assetPath + objectPath + componentName` or `componentIndex`; `componentInstanceId` is scene-only.
 - For complex prefab asset edits, use the `aibridge-prefab-patch` skill and prefer `prefab patch --ops <file>` with dry-run first.
 - In PowerShell, avoid inline complex `--json`; build JSON in a variable, escape embedded quotes for native EXE argument passing, and pass command parameters directly, especially `inspector set_properties --values $values`.
-- `focus` is Windows CLI-only and `screenshot` requires Play Mode.
+- `focus` is Windows CLI-only. `dialog` is CLI-only, uses Windows window APIs or macOS Accessibility permission, and omits dialog fields when no modal dialog is detected. `screenshot` requires Play Mode.
 
 ## Related Resources
 
@@ -59,6 +62,18 @@ CLI-only, Windows-only. Triggers Unity refresh/compile via Windows API.
 ```bash
 $CLI focus
 # Output: {"Success":true,"ProcessId":1234,"WindowTitle":"MyProject - Unity 6000.0.51f1","Error":null}
+```
+
+### `dialog` - Inspect Or Click Unity Modal Dialogs
+
+CLI-only. Use when Unity-side commands time out because a save/confirm modal may be blocking the Editor. Default behavior only detects and reports dialogs; clicking requires an explicit `dialog click` or `--on-dialog` mode.
+
+```bash
+$CLI dialog status
+$CLI dialog click --choice cancel
+$CLI dialog click --button "Don't Save"
+$CLI dialog wait --timeout 5000 --click cancel
+$CLI scene load --scenePath Assets/Main.unity --on-dialog cancel
 ```
 
 ### `multi` - Execute Multiple Commands (Recommended)

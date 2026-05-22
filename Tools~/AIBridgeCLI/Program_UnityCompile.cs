@@ -27,7 +27,7 @@ namespace AIBridgeCLI
                 OutputFormatter.PrintInfo("Starting Unity compilation...");
             }
 
-            var sender = new CommandSender(commandTimeout);
+            var sender = CreateCommandSender(commandTimeout, parsed);
             var startTime = DateTime.Now;
 
             // Step 1: Send compile start command

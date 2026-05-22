@@ -72,7 +72,7 @@ macOS/Linux 可使用随包平台可执行文件，或按项目配置通过 `dot
 $CLI <command> <action> [options]
 ```
 
-少数 CLI-only 或辅助命令格式不同：`focus` 没有 action，`multi` 使用 `--cmd` 或 `--stdin`。
+少数 CLI-only 或辅助命令格式不同：`focus` 没有 action，`dialog` 使用 `status/click/wait`，`multi` 使用 `--cmd` 或 `--stdin`。
 
 ## 常用命令
 
@@ -80,6 +80,8 @@ $CLI <command> <action> [options]
 
 ```bash
 $CLI focus
+$CLI dialog status
+$CLI dialog click --choice cancel
 $CLI editor log --message "Hello" --logType Warning
 $CLI editor get_state
 $CLI compile unity
@@ -91,6 +93,8 @@ $CLI test status
 ```
 
 Unity 验证必须使用 `compile unity`。`compile dotnet` 只能作为额外的解决方案构建检查，不能替代 Unity 编译。
+
+Unity 命令超时且怀疑 Editor 被保存/确认弹窗阻塞时，使用 `dialog status` 检查。未检测到弹窗时，精简 JSON 不返回 `blockedByDialog` 和 `dialogs` 字段；字段不存在即表示无弹窗。macOS 检查和点击弹窗需要 Accessibility 权限。Unity 命令可显式指定超时处理，例如 `--on-dialog cancel` 或 `--on-dialog discard`。
 
 `get_logs` 支持设置面板默认值和可选的正则筛选：
 

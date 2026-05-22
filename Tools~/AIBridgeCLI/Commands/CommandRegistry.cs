@@ -90,10 +90,11 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("Commands:");
 
             var maxLen = _commands.Keys.Max(k => k.Length);
-            maxLen = Math.Max(maxLen, "focus".Length); // Include focus command
+            maxLen = Math.Max(maxLen, "dialog".Length); // Include CLI-only commands
 
-            // Add focus command (CLI-only)
+            // Add CLI-only commands
             sb.AppendLine($"  {"focus".PadRight(maxLen + 2)} Bring Unity Editor window to foreground (CLI-only, no Unity needed)");
+            sb.AppendLine($"  {"dialog".PadRight(maxLen + 2)} Inspect or click Unity modal dialogs (CLI-only, no Unity needed)");
 
             foreach (var cmd in _commands.Values.OrderBy(c => c.Type))
             {
@@ -104,6 +105,7 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("Global Options:");
             sb.AppendLine("  --timeout <ms>     Timeout in milliseconds (default: 5000)");
             sb.AppendLine("  --no-wait          Don't wait for result, return command ID immediately");
+            sb.AppendLine("  --on-dialog <mode> Handle Unity modal dialogs on timeout: none, wait, cancel, save, discard, ok, yes, no, delete, replace");
             sb.AppendLine("  --raw              Output compact raw JSON (default)");
             sb.AppendLine("  --pretty           Output human-readable formatted text");
             sb.AppendLine("  --quiet            Quiet mode, minimal output");

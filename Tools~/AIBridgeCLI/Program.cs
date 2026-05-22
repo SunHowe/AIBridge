@@ -56,6 +56,12 @@ namespace AIBridgeCLI
             // Handle help
             if (help || parsed.CommandType == null)
             {
+                if (parsed.CommandType != null && parsed.CommandType.Equals("dialog", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine(DialogCommand.GetHelp());
+                    return 0;
+                }
+
                 if (parsed.CommandType != null && CommandRegistry.TryGet(parsed.CommandType, out var cmdBuilder))
                 {
                     Console.WriteLine(cmdBuilder.GetHelp(parsed.Action));
@@ -87,6 +93,16 @@ namespace AIBridgeCLI
                     }
                 }
                 return focusResult.Success ? 0 : 1;
+            }
+
+            // Handle dialog command (CLI-only, no Unity communication needed)
+            if (parsed.CommandType.Equals("dialog", StringComparison.OrdinalIgnoreCase))
+            {
+                return DialogCommand.Execute(
+                    parsed.Action,
+                    parsed.Options.ContainsKey,
+                    key => parsed.Options.TryGetValue(key, out var value) ? value : null,
+                    outputMode == OutputMode.Pretty);
             }
 
             // Handle compile dotnet command (CLI-only, no Unity communication needed)
@@ -182,7 +198,7 @@ namespace AIBridgeCLI
             }
 
             // Send command
-            var sender = new CommandSender(timeout);
+            var sender = CreateCommandSender(timeout, parsed);
 
             if (noWait)
             {
@@ -202,6 +218,16 @@ namespace AIBridgeCLI
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
 
             return result.success ? 0 : 1;
+        }
+
+        static CommandSender CreateCommandSender(int timeout, ParsedArgs parsed)
+        {
+            if (parsed != null && parsed.Options.TryGetValue("on-dialog", out var onDialog))
+            {
+                return new CommandSender(timeout, onDialog);
+            }
+
+            return new CommandSender(timeout);
         }
 
     }

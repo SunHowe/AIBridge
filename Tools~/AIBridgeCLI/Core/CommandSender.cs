@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using AIBridgeCLI.Commands;
 using Newtonsoft.Json;
 
 namespace AIBridgeCLI.Core
@@ -15,17 +16,19 @@ namespace AIBridgeCLI.Core
         private readonly string _resultsDir;
         private readonly int _timeout;
         private readonly int _pollInterval;
+        private readonly string _onDialog;
 
         /// <summary>
         /// Create a new CommandSender
         /// </summary>
         /// <param name="timeout">Timeout in milliseconds (default: 5000)</param>
         /// <param name="pollInterval">Poll interval in milliseconds (default: 50)</param>
-        public CommandSender(int timeout = 5000, int pollInterval = 50)
+        public CommandSender(int timeout = 5000, string onDialog = null, int pollInterval = 50)
         {
             _commandsDir = PathHelper.GetCommandsDirectory();
             _resultsDir = PathHelper.GetResultsDirectory();
             _timeout = timeout;
+            _onDialog = onDialog;
             _pollInterval = pollInterval;
 
             PathHelper.EnsureDirectoriesExist();
@@ -79,6 +82,18 @@ namespace AIBridgeCLI.Core
             }
 
             // Timeout - clean up command file if still exists
+            var dialogDiagnostic = HandleTimeoutDialog();
+            if (dialogDiagnostic != null)
+            {
+                return new CommandResult
+                {
+                    id = request.id,
+                    success = false,
+                    error = dialogDiagnostic.Error,
+                    data = dialogDiagnostic.Data
+                };
+            }
+
             try { File.Delete(commandFile); } catch { }
 
             return new CommandResult
@@ -134,6 +149,76 @@ namespace AIBridgeCLI.Core
             {
                 return null;
             }
+        }
+
+        private TimeoutDialogDiagnostic HandleTimeoutDialog()
+        {
+            var status = DialogService.GetStatus();
+            if (status == null)
+            {
+                return null;
+            }
+
+            if (!status.success)
+            {
+                if (string.Equals(status.errorCode, "macos_accessibility_permission_required", StringComparison.OrdinalIgnoreCase))
+                {
+                    // macOS 没有辅助功能权限时，先保留命令文件，避免用户授权后原请求丢失。
+                    return new TimeoutDialogDiagnostic
+                    {
+                        Error = "Unity did not respond, and dialog inspection requires macOS Accessibility permission.",
+                        Data = status
+                    };
+                }
+
+                return null;
+            }
+
+            if (!DialogService.HasBlockingDialog(status))
+            {
+                return null;
+            }
+
+            // 检测到模态弹窗时，不删除原始命令文件，避免关闭弹窗后请求丢失。
+            var normalizedAction = DialogService.NormalizeChoice(_onDialog);
+            if (string.IsNullOrWhiteSpace(normalizedAction) || normalizedAction == "none")
+            {
+                return new TimeoutDialogDiagnostic
+                {
+                    Error = "Unity is blocked by a modal dialog.",
+                    Data = status
+                };
+            }
+
+            if (normalizedAction == "wait")
+            {
+                return new TimeoutDialogDiagnostic
+                {
+                    Error = "Unity is blocked by a modal dialog.",
+                    Data = new
+                    {
+                        dialog = status,
+                        wait = DialogService.Wait(_timeout)
+                    }
+                };
+            }
+
+            var click = DialogService.Click(normalizedAction, null, null);
+            return new TimeoutDialogDiagnostic
+            {
+                Error = "Unity is blocked by a modal dialog.",
+                Data = new
+                {
+                    dialog = status,
+                    click = click
+                }
+            };
+        }
+
+        private class TimeoutDialogDiagnostic
+        {
+            public string Error { get; set; }
+            public object Data { get; set; }
         }
     }
 }

@@ -22,7 +22,7 @@ namespace AIBridgeCLI
                 ? transportMs
                 : GetDefaultUnityCompileTransportTimeout(testTimeout, pollInterval);
 
-            var sender = new CommandSender(commandTimeout);
+            var sender = CreateCommandSender(commandTimeout, parsed);
             var startTime = DateTime.Now;
 
             var startParams = new Dictionary<string, object>
@@ -117,7 +117,7 @@ namespace AIBridgeCLI
                 ? timeoutMs
                 : DEFAULT_TIMEOUT;
 
-            var sender = new CommandSender(transportTimeout);
+            var sender = CreateCommandSender(transportTimeout, parsed);
             var result = sender.SendCommand(new CommandRequest
             {
                 id = PathHelper.GenerateCommandId(),

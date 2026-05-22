@@ -58,7 +58,8 @@ namespace AIBridgeCLI.Commands
             // Global options to exclude from params
             var globalOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "json", "stdin", "timeout", "no-wait", "raw", "pretty", "quiet", "help"
+                "json", "stdin", "timeout", "transport-timeout", "poll-interval",
+                "no-wait", "raw", "pretty", "quiet", "help", "on-dialog"
             };
 
             // Process other options
