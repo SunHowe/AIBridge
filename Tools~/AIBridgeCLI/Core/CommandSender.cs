@@ -44,6 +44,18 @@ namespace AIBridgeCLI.Core
                 request.id = PathHelper.GenerateCommandId();
             }
 
+            var preflightDialogDiagnostic = HandleBlockingDialog(isPreflight: true);
+            if (preflightDialogDiagnostic != null)
+            {
+                return new CommandResult
+                {
+                    id = request.id,
+                    success = false,
+                    error = preflightDialogDiagnostic.Error,
+                    data = preflightDialogDiagnostic.Data
+                };
+            }
+
             var commandFile = Path.Combine(_commandsDir, $"{request.id}.json");
             var resultFile = Path.Combine(_resultsDir, $"{request.id}.json");
 
@@ -82,7 +94,7 @@ namespace AIBridgeCLI.Core
             }
 
             // Timeout - clean up command file if still exists
-            var dialogDiagnostic = HandleTimeoutDialog();
+            var dialogDiagnostic = HandleBlockingDialog(isPreflight: false);
             if (dialogDiagnostic != null)
             {
                 return new CommandResult
@@ -109,9 +121,26 @@ namespace AIBridgeCLI.Core
         /// </summary>
         public string SendCommandNoWait(CommandRequest request)
         {
+            return TrySendCommandNoWait(request).id;
+        }
+
+        public CommandResult TrySendCommandNoWait(CommandRequest request)
+        {
             if (string.IsNullOrEmpty(request.id))
             {
                 request.id = PathHelper.GenerateCommandId();
+            }
+
+            var preflightDialogDiagnostic = HandleBlockingDialog(isPreflight: true);
+            if (preflightDialogDiagnostic != null)
+            {
+                return new CommandResult
+                {
+                    id = request.id,
+                    success = false,
+                    error = preflightDialogDiagnostic.Error,
+                    data = preflightDialogDiagnostic.Data
+                };
             }
 
             var commandFile = Path.Combine(_commandsDir, $"{request.id}.json");
@@ -120,7 +149,16 @@ namespace AIBridgeCLI.Core
             var json = JsonConvert.SerializeObject(request, Formatting.None);
             File.WriteAllText(commandFile, json, new UTF8Encoding(false));
 
-            return request.id;
+            return new CommandResult
+            {
+                id = request.id,
+                success = true,
+                data = new
+                {
+                    id = request.id,
+                    status = "sent"
+                }
+            };
         }
 
         /// <summary>
@@ -151,7 +189,7 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private TimeoutDialogDiagnostic HandleTimeoutDialog()
+        private BlockingDialogDiagnostic HandleBlockingDialog(bool isPreflight)
         {
             var status = DialogService.GetStatus();
             if (status == null)
@@ -161,10 +199,15 @@ namespace AIBridgeCLI.Core
 
             if (!status.success)
             {
+                if (isPreflight)
+                {
+                    return null;
+                }
+
                 if (string.Equals(status.errorCode, "macos_accessibility_permission_required", StringComparison.OrdinalIgnoreCase))
                 {
                     // macOS 没有辅助功能权限时，先保留命令文件，避免用户授权后原请求丢失。
-                    return new TimeoutDialogDiagnostic
+                    return new BlockingDialogDiagnostic
                     {
                         Error = "Unity did not respond, and dialog inspection requires macOS Accessibility permission.",
                         Data = status
@@ -183,7 +226,7 @@ namespace AIBridgeCLI.Core
             var normalizedAction = DialogService.NormalizeChoice(_onDialog);
             if (string.IsNullOrWhiteSpace(normalizedAction) || normalizedAction == "none")
             {
-                return new TimeoutDialogDiagnostic
+                return new BlockingDialogDiagnostic
                 {
                     Error = "Unity is blocked by a modal dialog.",
                     Data = status
@@ -192,7 +235,7 @@ namespace AIBridgeCLI.Core
 
             if (normalizedAction == "wait")
             {
-                return new TimeoutDialogDiagnostic
+                return new BlockingDialogDiagnostic
                 {
                     Error = "Unity is blocked by a modal dialog.",
                     Data = new
@@ -204,7 +247,7 @@ namespace AIBridgeCLI.Core
             }
 
             var click = DialogService.Click(normalizedAction, null, null);
-            return new TimeoutDialogDiagnostic
+            return new BlockingDialogDiagnostic
             {
                 Error = "Unity is blocked by a modal dialog.",
                 Data = new
@@ -215,7 +258,7 @@ namespace AIBridgeCLI.Core
             };
         }
 
-        private class TimeoutDialogDiagnostic
+        private class BlockingDialogDiagnostic
         {
             public string Error { get; set; }
             public object Data { get; set; }

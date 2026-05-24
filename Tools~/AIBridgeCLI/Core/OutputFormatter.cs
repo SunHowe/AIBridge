@@ -115,6 +115,11 @@ namespace AIBridgeCLI.Core
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"  Error: {result.error}");
                 Console.ResetColor();
+
+                if (result.data != null)
+                {
+                    PrintData(result.data, "  ");
+                }
             }
         }
 

@@ -202,14 +202,20 @@ namespace AIBridgeCLI
 
             if (noWait)
             {
-                var commandId = sender.SendCommandNoWait(request);
+                var noWaitResult = sender.TrySendCommandNoWait(request);
+                if (!noWaitResult.success)
+                {
+                    OutputFormatter.PrintResult(noWaitResult, outputMode, includeIdInRaw: false);
+                    return 1;
+                }
+
                 if (outputMode == OutputMode.Pretty)
                 {
-                    OutputFormatter.PrintInfo($"Command sent with ID: {commandId}");
+                    OutputFormatter.PrintInfo($"Command sent with ID: {noWaitResult.id}");
                 }
                 else
                 {
-                    Console.WriteLine(JsonConvert.SerializeObject(new { id = commandId, status = "sent" }));
+                    Console.WriteLine(JsonConvert.SerializeObject(new { id = noWaitResult.id, status = "sent" }));
                 }
                 return 0;
             }

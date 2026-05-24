@@ -79,7 +79,7 @@ namespace AIBridge.Editor
                     processId = process.Id,
                     projectRoot = projectRoot,
                     projectName = GetProjectName(projectRoot),
-                    windowTitle = process.MainWindowTitle ?? string.Empty,
+                    windowTitle = NormalizeWindowTitle(process.MainWindowTitle),
                     lastUpdatedUtc = DateTime.UtcNow.ToString("O")
                 };
 
@@ -128,6 +128,17 @@ namespace AIBridge.Editor
 
             var trimmed = projectRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             return Path.GetFileName(trimmed) ?? string.Empty;
+        }
+
+        private static string NormalizeWindowTitle(string windowTitle)
+        {
+            if (string.IsNullOrWhiteSpace(windowTitle) ||
+                string.Equals(windowTitle, "null", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return windowTitle;
         }
     }
 }

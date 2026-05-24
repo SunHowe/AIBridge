@@ -104,26 +104,7 @@ namespace AIBridgeCLI.Commands
             }
 
             Console.WriteLine("Unity is blocked by modal dialog(s):");
-            foreach (var dialog in result.dialogs)
-            {
-                Console.WriteLine("  dialog: " + dialog.id);
-                if (!string.IsNullOrWhiteSpace(dialog.title))
-                {
-                    Console.WriteLine("    title: " + dialog.title);
-                }
-                if (!string.IsNullOrWhiteSpace(dialog.message))
-                {
-                    Console.WriteLine("    message: " + dialog.message.Replace("\n", " "));
-                }
-                if (dialog.buttons != null)
-                {
-                    Console.WriteLine("    buttons:");
-                    foreach (var button in dialog.buttons)
-                    {
-                        Console.WriteLine("      - " + button.text + " (" + button.choice + ")");
-                    }
-                }
-            }
+            PrintDialogs(result.dialogs, "  ");
 
             return 0;
         }
@@ -139,6 +120,12 @@ namespace AIBridgeCLI.Commands
             if (result.success)
             {
                 Console.WriteLine("Clicked Unity dialog button: " + result.buttonText);
+                if (DialogService.HasBlockingDialog(result.status))
+                {
+                    Console.WriteLine("Unity still has modal dialog(s):");
+                    PrintDialogs(result.status.dialogs, "  ");
+                }
+
                 return 0;
             }
 
@@ -148,7 +135,42 @@ namespace AIBridgeCLI.Commands
                 Console.Error.WriteLine("Code: " + result.errorCode);
             }
 
+            if (DialogService.HasBlockingDialog(result.status))
+            {
+                Console.Error.WriteLine("Unity modal dialog(s) after click attempt:");
+                PrintDialogs(result.status.dialogs, "  ");
+            }
+
             return 1;
+        }
+
+        private static void PrintDialogs(System.Collections.Generic.List<DialogInfo> dialogs, string indent)
+        {
+            if (dialogs == null)
+            {
+                return;
+            }
+
+            foreach (var dialog in dialogs)
+            {
+                Console.WriteLine(indent + "dialog: " + dialog.id);
+                if (!string.IsNullOrWhiteSpace(dialog.title))
+                {
+                    Console.WriteLine(indent + "  title: " + dialog.title);
+                }
+                if (!string.IsNullOrWhiteSpace(dialog.message))
+                {
+                    Console.WriteLine(indent + "  message: " + dialog.message.Replace("\n", " "));
+                }
+                if (dialog.buttons != null)
+                {
+                    Console.WriteLine(indent + "  buttons:");
+                    foreach (var button in dialog.buttons)
+                    {
+                        Console.WriteLine(indent + "    - " + button.text + " (" + button.choice + ")");
+                    }
+                }
+            }
         }
 
         private static JsonSerializerSettings JsonSettings()

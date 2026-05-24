@@ -3,16 +3,23 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace AIBridgeCLI.Commands
 {
     internal static class WindowsDialogDriver
     {
         private const string PlatformName = "windows";
+        private const int ClickVerifyTimeoutMs = 1500;
+        private const int ClickVerifyPollIntervalMs = 100;
         private const int GW_OWNER = 4;
         private const int BM_CLICK = 0x00F5;
         private const int GWL_STYLE = -16;
         private const uint WS_DISABLED = 0x08000000;
+        private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        private const int SW_RESTORE = 9;
+        private const int SW_SHOW = 5;
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -39,6 +46,33 @@ namespace AIBridgeCLI.Commands
 
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetFocus(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out POINT lpPoint);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetCursorPos(int x, int y);
+
+        [DllImport("user32.dll")]
+        private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
 
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
@@ -112,8 +146,53 @@ namespace AIBridgeCLI.Commands
                 };
             }
 
+            var dialogHwnd = ParseHwnd(dialog.id);
+            if (dialogHwnd == IntPtr.Zero)
+            {
+                return new DialogClickResult
+                {
+                    success = false,
+                    platform = PlatformName,
+                    processId = process.Id,
+                    dialog = dialog,
+                    buttonId = button.id,
+                    buttonText = button.text,
+                    choice = button.choice,
+                    error = "The matching dialog cannot be activated by this backend.",
+                    errorCode = "dialog_invalid_id"
+                };
+            }
+
+            FocusDialog(dialogHwnd, hwnd);
+
             // Unity 主线程被模态窗口阻塞时，CLI 只能从操作系统窗口层发送点击消息解锁。
             SendMessage(hwnd, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
+            var statusAfterClick = WaitForClickEffect(process, dialog.id, button.id);
+            if (IsStillBlockedBySameButton(statusAfterClick, dialog.id, button.id))
+            {
+                // 部分 Unity/系统弹窗会忽略 BM_CLICK，改用真实鼠标命中点击作为兜底。
+                TryMouseClick(dialogHwnd, hwnd);
+                statusAfterClick = WaitForClickEffect(process, dialog.id, button.id);
+                if (IsStillBlockedBySameButton(statusAfterClick, dialog.id, button.id))
+                {
+                    return new DialogClickResult
+                    {
+                        success = false,
+                        clicked = true,
+                        platform = PlatformName,
+                        processId = process.Id,
+                        dialogId = dialog.id,
+                        buttonId = button.id,
+                        buttonText = button.text,
+                        choice = button.choice,
+                        dialog = dialog,
+                        status = statusAfterClick,
+                        error = "The dialog button message and fallback mouse click were sent, but the dialog is still present.",
+                        errorCode = "dialog_click_not_confirmed"
+                    };
+                }
+            }
+
             return new DialogClickResult
             {
                 success = true,
@@ -124,8 +203,102 @@ namespace AIBridgeCLI.Commands
                 buttonId = button.id,
                 buttonText = button.text,
                 choice = button.choice,
-                dialog = dialog
+                dialog = dialog,
+                status = statusAfterClick
             };
+        }
+
+        private static void FocusDialog(IntPtr dialogHwnd, IntPtr buttonHwnd)
+        {
+            if (IsIconic(dialogHwnd))
+            {
+                ShowWindow(dialogHwnd, SW_RESTORE);
+            }
+
+            ShowWindow(dialogHwnd, SW_SHOW);
+            SetForegroundWindow(dialogHwnd);
+            SetFocus(buttonHwnd);
+        }
+
+        private static bool TryMouseClick(IntPtr dialogHwnd, IntPtr buttonHwnd)
+        {
+            if (!GetWindowRect(buttonHwnd, out var rect))
+            {
+                return false;
+            }
+
+            var x = rect.Left + Math.Max(1, (rect.Right - rect.Left) / 2);
+            var y = rect.Top + Math.Max(1, (rect.Bottom - rect.Top) / 2);
+            var hasOriginalCursor = GetCursorPos(out var originalCursor);
+
+            FocusDialog(dialogHwnd, buttonHwnd);
+            if (!SetCursorPos(x, y))
+            {
+                return false;
+            }
+
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, IntPtr.Zero);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, IntPtr.Zero);
+
+            if (hasOriginalCursor)
+            {
+                SetCursorPos(originalCursor.X, originalCursor.Y);
+            }
+
+            return true;
+        }
+
+        private static DialogStatusResult WaitForClickEffect(Process process, string dialogId, string buttonId)
+        {
+            var startTime = DateTime.Now;
+            DialogStatusResult lastStatus = null;
+
+            while ((DateTime.Now - startTime).TotalMilliseconds < ClickVerifyTimeoutMs)
+            {
+                Thread.Sleep(ClickVerifyPollIntervalMs);
+
+                var dialogs = EnumerateDialogs(process);
+                lastStatus = DialogService.CreateStatusResult(process, PlatformName, dialogs);
+                if (!IsStillBlockedBySameButton(lastStatus, dialogId, buttonId))
+                {
+                    return lastStatus;
+                }
+            }
+
+            return lastStatus;
+        }
+
+        private static bool IsStillBlockedBySameButton(DialogStatusResult status, string dialogId, string buttonId)
+        {
+            if (!DialogService.HasBlockingDialog(status))
+            {
+                return false;
+            }
+
+            foreach (var dialog in status.dialogs)
+            {
+                if (!string.Equals(dialog.id, dialogId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (dialog.buttons == null)
+                {
+                    return IsWindow(ParseHwnd(dialogId));
+                }
+
+                foreach (var button in dialog.buttons)
+                {
+                    if (string.Equals(button.id, buttonId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+
+                return IsWindow(ParseHwnd(dialogId));
+            }
+
+            return false;
         }
 
         private static List<DialogInfo> EnumerateDialogs(Process process)
@@ -255,6 +428,20 @@ namespace AIBridgeCLI.Commands
 
             var value = id.Substring("hwnd:".Length);
             return long.TryParse(value, out var handle) ? new IntPtr(handle) : IntPtr.Zero;
+        }
+
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        private struct POINT
+        {
+            public int X;
+            public int Y;
         }
     }
 }

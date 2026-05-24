@@ -109,8 +109,11 @@ namespace AIBridgeCLI.Commands
 
             if (result.success)
             {
-                Thread.Sleep(PostClickSettlingMs);
-                result.status = GetStatus();
+                if (result.status == null)
+                {
+                    Thread.Sleep(PostClickSettlingMs);
+                    result.status = GetStatus();
+                }
             }
 
             return result;
@@ -186,7 +189,8 @@ namespace AIBridgeCLI.Commands
             {
                 foreach (var button in dialog.buttons)
                 {
-                    if (string.Equals(button.text, buttonText, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(button.text, buttonText, StringComparison.OrdinalIgnoreCase) ||
+                        ButtonTextMatches(button.text, buttonText))
                     {
                         return button;
                     }
@@ -215,11 +219,14 @@ namespace AIBridgeCLI.Commands
                 return null;
             }
 
-            var normalized = value.Trim().ToLowerInvariant();
+            var normalized = NormalizeButtonTextForChoice(value);
             switch (normalized)
             {
                 case "dontsave":
+                case "don'tsave":
+                case "don\u2019tsave":
                 case "don't save":
+                case "don\u2019t save":
                 case "dont save":
                 case "do not save":
                 case "discard":
@@ -254,8 +261,10 @@ namespace AIBridgeCLI.Commands
                 return null;
             }
 
-            var normalized = text.Trim().ToLowerInvariant();
+            var normalized = NormalizeButtonTextForChoice(text);
             if (normalized == "don't save" || normalized == "dont save" || normalized == "do not save" ||
+                normalized.Contains("don't save") || normalized.Contains("dont save") ||
+                normalized.Contains("do not save") ||
                 normalized.Contains("discard"))
             {
                 return "discard";
@@ -299,6 +308,34 @@ namespace AIBridgeCLI.Commands
             if (normalized.Contains("close"))
             {
                 return "close";
+            }
+
+            return normalized;
+        }
+
+        private static bool ButtonTextMatches(string left, string right)
+        {
+            return string.Equals(
+                NormalizeButtonTextForChoice(left),
+                NormalizeButtonTextForChoice(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeButtonTextForChoice(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var normalized = value.Trim().ToLowerInvariant()
+                .Replace("\u2019", "'")
+                .Replace("`", "'")
+                .Replace("&", string.Empty);
+
+            while (normalized.Contains("  "))
+            {
+                normalized = normalized.Replace("  ", " ");
             }
 
             return normalized;
