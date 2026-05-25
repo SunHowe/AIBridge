@@ -49,6 +49,8 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 - Unity-side project setting cannot be bypassed by CLI parameters.
 - `--file` must point to `.aibridge/code/*.cs` or `.aibridge/code/*.csx`.
 - `--code` is intended for short snippets only.
+- Prefer file mode for one-off Editor generation scripts that create complex Prefabs, scenes, effects, or assets.
+- For generation scripts, keep output under a clear folder such as `Assets/AIBridgeGenerated/<TaskName>/` and return structured result data.
 - Snippets are wrapped as `object Execute()` or `Task<object> ExecuteAsync()` when `await` is present.
 - Result data includes `enabled`, `source`, `elapsedMs`, `returnValue`, `logs`, `compileErrors`, and `exception` when applicable.
 - Use this only for trusted projects/callers; it is not a replacement for `compile unity` or `test run`.";
@@ -286,6 +288,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             builder.AppendLine("using System.Threading.Tasks;");
             builder.AppendLine("using UnityEngine;");
             builder.AppendLine("using UnityEditor;");
+            builder.AppendLine("using AIBridge.Editor;");
             foreach (var usingLine in leadingUsings)
             {
                 builder.AppendLine(usingLine);
