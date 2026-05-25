@@ -364,6 +364,7 @@ namespace AIBridge.Editor
                 content = content.Replace(hardcodedPath, fixedCliPath);
             }
 
+            content = ApplyProjectVersionTokens(content);
             File.WriteAllText(targetFile, content, System.Text.Encoding.UTF8);
         }
 
@@ -557,12 +558,19 @@ namespace AIBridge.Editor
         {
             var cliExeName = GetCliExecutableName();
             var language = AIBridgeProjectSettings.Instance.EditorLanguage;
+            var unityVersion = GetCurrentUnityVersionText();
+            var csharpLanguageVersion = GetCurrentCSharpLanguageVersionText();
             var workflowSkillDocPath = GetSkillDocumentPath(projectRoot, target, "aibridge-development-workflow");
             var skillRootPath = GetSkillRootDocumentPath(projectRoot, target);
             return new Dictionary<string, string>
             {
                 { "CLI_PATH", "./" + CLI_CACHE_FOLDER + "/" + cliExeName },
                 { "COMMON_COMMANDS_TITLE", AIBridgeEditorText.For(language, "Common Commands", "常用命令") },
+                { "PROJECT_VERSION_TITLE", AIBridgeEditorText.For(language, "Project Version", "项目版本") },
+                { "UNITY_VERSION", unityVersion },
+                { "CSHARP_LANGUAGE_VERSION", csharpLanguageVersion },
+                { "UNITY_VERSION_RULE", AIBridgeEditorText.For(language, "Current Unity version: " + unityVersion, "当前项目 Unity 版本：" + unityVersion) },
+                { "CSHARP_VERSION_RULE", AIBridgeEditorText.For(language, "Current C# language requirement: compatible with " + csharpLanguageVersion + "; do not use newer syntax.", "当前项目 C# 语言版本要求：兼容 " + csharpLanguageVersion + "，禁止使用更高版本语法。") },
                 { "ROUTING_TITLE", AIBridgeEditorText.For(language, "Routing Rules", "路由原则") },
                 { "QUICK_TASK_RULE", AIBridgeEditorText.For(language, "Quick tasks: answer or execute directly for pure Q&A, code explanation, search/display, or tasks with no code or asset changes.", "快速任务：纯问答、代码解释、查找、显示、无代码或资源修改，直接回答或执行。") },
                 { "DEVELOPMENT_TASK_RULE", AIBridgeEditorText.For(language, "Development tasks: creating, modifying, fixing, refactoring C# code, Unity assets, Prefabs, Editor tools, package structure, tests, AGENTS.md, or Skills must load `aibridge-development-workflow` first.", "开发任务：创建、修改、修复、重构 C# 代码、Unity 资源、Prefab、Editor 工具、包结构、测试、AGENTS.md 或 Skills，必须优先加载 `aibridge-development-workflow`。") },
@@ -571,6 +579,25 @@ namespace AIBridge.Editor
                 { "WORKFLOW_SKILL_ENTRY", AIBridgeEditorText.For(language, "Load `aibridge-development-workflow` from `" + workflowSkillDocPath + "` before development tasks.", "开发任务先加载 `" + workflowSkillDocPath + "` 中的 `aibridge-development-workflow`。") },
                 { "SKILL_ROOT_RULE", AIBridgeEditorText.For(language, "AIBridge Skills are installed under `" + skillRootPath + "/<skill-name>/SKILL.md`; load sibling Skills from that directory only when the workflow requires them.", "AIBridge Skills 安装在 `" + skillRootPath + "/<skill-name>/SKILL.md`；仅在工作流要求时从该目录加载同级 Skill。") }
             };
+        }
+
+        private static string ApplyProjectVersionTokens(string content)
+        {
+            return content
+                .Replace("{{UNITY_VERSION}}", GetCurrentUnityVersionText())
+                .Replace("{{CSHARP_LANGUAGE_VERSION}}", GetCurrentCSharpLanguageVersionText());
+        }
+
+        private static string GetCurrentUnityVersionText()
+        {
+            return string.IsNullOrEmpty(Application.unityVersion)
+                ? "Unknown"
+                : Application.unityVersion;
+        }
+
+        private static string GetCurrentCSharpLanguageVersionText()
+        {
+            return "C# " + CodeCommand.GetSupportedCSharpLanguageVersion();
         }
 
         private static string GetSkillDocumentPath(string projectRoot, AssistantIntegrationTarget target, string skillName)

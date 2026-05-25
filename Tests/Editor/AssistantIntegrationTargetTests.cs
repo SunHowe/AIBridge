@@ -102,6 +102,8 @@ namespace AIBridge.Editor.Tests
 
             StringAssert.Contains("{{WORKFLOW_SKILL_ENTRY}}", template.Body);
             StringAssert.Contains("{{SKILL_ROOT_RULE}}", template.Body);
+            StringAssert.Contains("{{UNITY_VERSION_RULE}}", template.Body);
+            StringAssert.Contains("{{CSHARP_VERSION_RULE}}", template.Body);
             Assert.IsFalse(template.Body.Contains("{{SKILL_INDEX}}"));
         }
 

@@ -125,6 +125,8 @@ namespace AIBridge.Editor
                     return "Prefab operations: instantiate, save, unpack, apply, patch";
                 case "BatchCommand":
                     return "Execute multiple commands in a single request";
+                case "CodeCommand":
+                    return "Experimental controlled temporary C# execution, disabled by default";
                 case "HelpCommand":
                     return "Returns help information about available commands";
                 case "CompileCommand":
@@ -227,6 +229,14 @@ namespace AIBridge.Editor
                         from_file = new { type = "batch", @params = new { action = "from_file", file = ".aibridge/scripts/setup.txt" } },
                         from_text_runtime = new { type = "batch", @params = new { action = "from_text", scriptPath = ".aibridge/scripts/temp_script.txt", keepFile = false } },
                         cli_note = "CLI batch from_text writes --text to a temporary scriptPath before sending this Unity command."
+                    };
+
+                case "code":
+                    return new
+                    {
+                        safety = "Disabled by default. Enable AIBridge/Settings -> Basic -> Enable Code Execution and pass --allow-experimental true.",
+                        file = new { type = "code", @params = new { action = "execute", file = ".aibridge/code/check.csx", allowExperimental = true, timeout = 5000 } },
+                        inline = new { type = "code", @params = new { action = "execute", code = "Debug.Log(\"hello\"); return 123;", allowExperimental = true, timeout = 5000 } }
                     };
 
                 default:

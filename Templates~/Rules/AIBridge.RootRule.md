@@ -15,6 +15,10 @@ $CLI get_logs --logType Error
 $CLI editor log --message "Hello" --logType Warning
 ```
 
+**{{PROJECT_VERSION_TITLE}}**:
+- {{UNITY_VERSION_RULE}}
+- {{CSHARP_VERSION_RULE}}
+
 **{{ROUTING_TITLE}}**:
 - {{QUICK_TASK_RULE}}
 - {{DEVELOPMENT_TASK_RULE}}

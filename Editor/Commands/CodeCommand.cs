@@ -27,6 +27,9 @@ namespace AIBridge.Editor
         private const int MaxTimeoutMs = 60000;
         private const int MaxInlineCodeLength = 4000;
         private const long MaxSourceFileBytes = 512 * 1024;
+        private const string CSharpVersion2019 = "7.3";
+        private const string CSharpVersion2020 = "8.0";
+        private const string CSharpVersion2021OrNewer = "9.0";
 
         private static CodeAsyncOperation _activeOperation;
 
@@ -76,11 +79,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 return FailureWithData(
                     request.id,
                     "Code execution is disabled. Enable it in AIBridge/Settings -> Basic -> Enable Code Execution.",
-                    new
-                    {
-                        enabled = false,
-                        source = "none"
-                    });
+                    BuildSettingsGateData(settings));
             }
 
             if (!request.GetParam("allowExperimental", false))
@@ -128,7 +127,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                     return FailureWithData(
                         request.id,
                         "Code compilation failed.",
-                        BuildResultData(session, null, compileErrors, null, null));
+                        BuildResultData(session, null, compileErrors, null, ContainsTimeoutError(compileErrors) ? (bool?)true : null));
                 }
 
                 session.CompiledAssemblyPath = assemblyPath;
@@ -145,6 +144,14 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 
                 Application.logMessageReceived -= session.OnLogMessageReceived;
                 stopwatch.Stop();
+                if (stopwatch.ElapsedMilliseconds >= timeoutMs)
+                {
+                    return FailureWithData(
+                        request.id,
+                        "Code execution timed out after " + timeoutMs + "ms.",
+                        BuildResultData(session, null, new List<string>(), null, true));
+                }
+
                 return CommandResult.Success(request.id, BuildResultData(session, NormalizeReturnValue(invocation.ReturnValue), new List<string>(), null, null));
             }
             catch (Exception ex)
@@ -175,7 +182,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 
             if (hasFile)
             {
-                var fullPath = Path.GetFullPath(file);
+                var fullPath = ResolveCodeFilePath(file);
                 if (!IsSameOrChildPath(codeRoot, fullPath))
                 {
                     error = "Code file must be under .aibridge/code.";
@@ -314,7 +321,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             assemblyPath = Path.Combine(compiledDir, fileStem + ".dll");
             var responsePath = Path.Combine(compiledDir, fileStem + ".rsp");
             File.WriteAllText(sourcePath, session.Source.WrappedCode, Encoding.UTF8);
-            File.WriteAllText(responsePath, BuildCompilerResponseFile(sourcePath, assemblyPath), Encoding.UTF8);
+            File.WriteAllText(responsePath, BuildCompilerResponseFile(sourcePath, assemblyPath, GetSupportedCSharpLanguageVersion()), Encoding.UTF8);
 
             CompilerInvocation compiler;
             if (!TryResolveCompiler(out compiler))
@@ -332,12 +339,97 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             return File.Exists(assemblyPath) && compileErrors.Count == 0;
         }
 
-        private static string BuildCompilerResponseFile(string sourcePath, string assemblyPath)
+        private static bool ContainsTimeoutError(IEnumerable<string> errors)
+        {
+            if (errors == null)
+            {
+                return false;
+            }
+
+            foreach (var error in errors)
+            {
+                if (!string.IsNullOrEmpty(error)
+                    && error.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static string GetSupportedCSharpLanguageVersion()
+        {
+            return GetSupportedCSharpLanguageVersion(Application.unityVersion);
+        }
+
+        internal static string GetSupportedCSharpLanguageVersion(string unityVersion)
+        {
+            Version version;
+            if (!TryParseUnityVersion(unityVersion, out version))
+            {
+                return CSharpVersion2019;
+            }
+
+            if (version.Major >= 2022 || version.Major >= 6000)
+            {
+                return CSharpVersion2021OrNewer;
+            }
+
+            if (version.Major == 2021)
+            {
+                return version.Minor >= 2 ? CSharpVersion2021OrNewer : CSharpVersion2020;
+            }
+
+            if (version.Major == 2020)
+            {
+                return version.Minor >= 2 ? CSharpVersion2020 : CSharpVersion2019;
+            }
+
+            return CSharpVersion2019;
+        }
+
+        private static bool TryParseUnityVersion(string unityVersion, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrWhiteSpace(unityVersion))
+            {
+                return false;
+            }
+
+            var builder = new StringBuilder();
+            for (var i = 0; i < unityVersion.Length; i++)
+            {
+                var c = unityVersion[i];
+                if (char.IsDigit(c) || c == '.')
+                {
+                    builder.Append(c);
+                    continue;
+                }
+
+                break;
+            }
+
+            var versionText = builder.ToString().Trim('.');
+            if (string.IsNullOrEmpty(versionText))
+            {
+                return false;
+            }
+
+            while (versionText.Split('.').Length < 2)
+            {
+                versionText += ".0";
+            }
+
+            return Version.TryParse(versionText, out version);
+        }
+
+        private static string BuildCompilerResponseFile(string sourcePath, string assemblyPath, string languageVersion)
         {
             var builder = new StringBuilder();
             builder.AppendLine("-nologo");
             builder.AppendLine("-target:library");
-            builder.AppendLine("-langversion:9.0");
+            builder.AppendLine("-langversion:" + languageVersion);
             builder.AppendLine("-unsafe-");
             builder.AppendLine("-out:\"" + assemblyPath + "\"");
 
@@ -724,9 +816,30 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             };
         }
 
+        private static object BuildSettingsGateData(AIBridgeProjectSettings settings)
+        {
+            return new
+            {
+                enabled = settings.EnableCodeExecution,
+                riskAccepted = settings.CodeExecutionRiskAccepted,
+                source = "none"
+            };
+        }
+
         private static string GetProjectRoot()
         {
             return Path.GetDirectoryName(Application.dataPath);
+        }
+
+        private static string ResolveCodeFilePath(string file)
+        {
+            if (Path.IsPathRooted(file))
+            {
+                return Path.GetFullPath(file);
+            }
+
+            // Unity Editor 的当前工作目录在不同启动方式下不稳定，文件来源统一按项目根目录解析。
+            return Path.GetFullPath(Path.Combine(GetProjectRoot(), file));
         }
 
         private static bool IsSameOrChildPath(string rootDirectory, string fullPath)
