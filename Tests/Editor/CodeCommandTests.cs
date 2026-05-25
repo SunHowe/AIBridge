@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using AIBridge.Internal.Json;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -49,6 +51,8 @@ namespace AIBridge.Editor.Tests
             Assert.That(description, Does.Contain("disabled by default"));
             Assert.That(description, Does.Contain("--allow-experimental true"));
             Assert.That(description, Does.Contain(".aibridge/code"));
+            Assert.That(description, Does.Contain("Runtime/Public API"));
+            Assert.That(description, Does.Contain("prefab patch --dryRun true"));
         }
 
         [Test]
@@ -155,6 +159,82 @@ namespace AIBridge.Editor.Tests
             Assert.That(CodeCommand.GetSupportedCSharpLanguageVersion(unityVersion), Is.EqualTo(expected));
         }
 
+        [Test]
+        public void NormalizeReturnValue_ExpandsGenerationResult()
+        {
+            var generationResult = new AIBridgeGenerationResult()
+                .AddAsset("Assets/AIBridgeGenerated/Test/A.mat")
+                .AddPrefab("Assets/AIBridgeGenerated/Test/A.prefab")
+                .AddScene("Assets/AIBridgeGenerated/Test/A.unity")
+                .AddWarning("check budget")
+                .AddMessage("done");
+
+            var json = AIBridgeJson.Serialize(CodeCommand.NormalizeReturnValue(generationResult), true);
+
+            StringAssert.Contains("\"assets\"", json);
+            StringAssert.Contains("\"prefabs\"", json);
+            StringAssert.Contains("\"scenes\"", json);
+            StringAssert.Contains("\"warnings\"", json);
+            StringAssert.Contains("\"messages\"", json);
+            StringAssert.Contains("Assets/AIBridgeGenerated/Test/A.prefab", json);
+        }
+
+        [Test]
+        public void NormalizeReturnValue_ExpandsSerializableObjectRecursively()
+        {
+            var report = new SerializableReport
+            {
+                summary = "ok",
+                counts = new Dictionary<string, object>
+                {
+                    { "renderers", 3 },
+                    { "position", new Vector3(1, 2, 3) }
+                },
+                nested = new SerializableNested
+                {
+                    path = "Assets/AIBridgeGenerated/Test"
+                }
+            };
+
+            var json = AIBridgeJson.Serialize(CodeCommand.NormalizeReturnValue(report), true);
+
+            StringAssert.Contains("\"summary\"", json);
+            StringAssert.Contains("\"renderers\"", json);
+            StringAssert.Contains("\"position\"", json);
+            StringAssert.Contains("\"path\"", json);
+        }
+
+        [Test]
+        public void NormalizeReturnValue_ExpandsAnonymousObject()
+        {
+            var value = new
+            {
+                summary = "ok",
+                counts = new[] { 1, 2, 3 }
+            };
+
+            var json = AIBridgeJson.Serialize(CodeCommand.NormalizeReturnValue(value), true);
+
+            StringAssert.Contains("\"summary\"", json);
+            StringAssert.Contains("\"counts\"", json);
+        }
+
+        [Test]
+        public void GetCompilerCandidatePaths_PrioritizesUnity2019ToolsRoslyn()
+        {
+            var contentsPath = Path.Combine("UnityRoot", "Editor", "Data");
+            var candidates = CodeCommand.GetCompilerCandidatePaths(contentsPath);
+
+            Assert.That(candidates[0], Is.EqualTo(Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe")));
+            CollectionAssert.Contains(candidates, Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll"));
+        }
+
+        [Test]
+        public void ResolveCompilerOutputEncoding_ReturnsEncoding()
+        {
+            Assert.That(CodeCommand.ResolveCompilerOutputEncoding(), Is.Not.Null);
+        }
+
         private static CommandResult ExecuteInline(string code, bool allowExperimental)
         {
             var request = new CommandRequest
@@ -174,6 +254,20 @@ namespace AIBridge.Editor.Tests
             }
 
             return new CodeCommand().Execute(request);
+        }
+
+        [Serializable]
+        private sealed class SerializableReport
+        {
+            public string summary;
+            public Dictionary<string, object> counts;
+            public SerializableNested nested;
+        }
+
+        [Serializable]
+        private sealed class SerializableNested
+        {
+            public string path;
         }
     }
 }

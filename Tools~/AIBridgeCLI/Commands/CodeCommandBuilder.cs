@@ -37,6 +37,8 @@ namespace AIBridgeCLI.Commands
                 help += Environment.NewLine
                         + "Safety: disabled by default in Unity project settings. Enable AIBridge/Settings -> Basic -> Enable Code Execution first." + Environment.NewLine
                         + "Sources: provide exactly one of --file or --code. File paths must resolve under .aibridge/code and use .cs or .csx." + Environment.NewLine
+                        + "Use file mode for complex one-off Editor C# tasks: generated assets, structured analysis, diagnostics, Runtime/Public API calls, or multi-step UnityEditor API orchestration." + Environment.NewLine
+                        + "Prefer prefab patch dry-run for existing Prefab structure changes, inspector for properties, and gameobject/transform for simple scene object edits." + Environment.NewLine
                         + "Examples:" + Environment.NewLine
                         + "  AIBridgeCLI code execute --file .aibridge/code/check.csx --allow-experimental true --timeout 5000" + Environment.NewLine
                         + "  AIBridgeCLI code execute --code \"Debug.Log(\\\"hello\\\"); return 123;\" --allow-experimental true --timeout 5000" + Environment.NewLine;

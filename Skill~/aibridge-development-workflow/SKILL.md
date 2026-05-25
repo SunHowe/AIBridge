@@ -13,7 +13,7 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 
 - `references/risk-gates.md`：需求确认、风险分级、何时必须暂停确认。
 - `references/coding-rules.md`：C#、Unity、注释、硬编码、重复代码规则。
-- `references/editor-generation.md`：复杂 Prefab、场景、3D 特效等首次生成的一次性 Editor 脚本规范。
+- `references/editor-generation.md`：复杂生成、分析、诊断、Runtime/Public API 调用等一次性 Editor C# 脚本规范。
 - `references/checklist.md`：最终检查清单和收尾输出格式。
 
 ## 阶段总览
@@ -40,7 +40,7 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 - 涉及直接修改 Unity YAML 文本序列化文件（`.unity`、`.prefab`、`.asset`、`.mat`、`.controller` 等），或 AIBridge 不支持的 Prefab/Scene/ScriptableObjectTable 结构修改时，加入 `unity-yaml-editing`。
 - 涉及 batch、multi、批处理脚本、长脚本、stdin 或脚本自动化时，加入 `aibridge-batch-script`。
 - 涉及创建或修改 Skill 时，加入 `skill-creator`。
-- 涉及复杂 Prefab、复杂场景、3D 特效资源或批量 Unity 资源首次生成时，读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx` 一次性 Editor 生成脚本。
+- 涉及复杂一次性 Editor 侧 C# 任务时，读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx`；包括复杂资源首次生成、调用项目 Runtime/Public API、场景/资源统计、诊断报告或多步骤 UnityEditor API 编排。
 
 ## 需求确认模式
 
@@ -97,7 +97,7 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 - 小步修改，每个子任务完成后做对应自测。
 - 复杂逻辑添加必要的简体中文注释。
 - 修改 C# 或 Unity 相关逻辑前读取 `references/coding-rules.md`。
-- 使用一次性 Editor 生成脚本创建复杂资源前读取 `references/editor-generation.md`。
+- 使用一次性 Editor 脚本处理复杂生成、分析、诊断或 Runtime/Public API 调用前读取 `references/editor-generation.md`。
 
 ## 检查清单模式
 

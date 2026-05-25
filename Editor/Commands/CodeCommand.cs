@@ -2,9 +2,11 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using AIBridge.Internal.Json;
@@ -27,6 +29,8 @@ namespace AIBridge.Editor
         private const int MaxTimeoutMs = 60000;
         private const int MaxInlineCodeLength = 4000;
         private const long MaxSourceFileBytes = 512 * 1024;
+        private const int MaxNormalizedDepth = 8;
+        private const int MaxNormalizedCollectionItems = 512;
         private const string CSharpVersion2019 = "7.3";
         private const string CSharpVersion2020 = "8.0";
         private const string CSharpVersion2021OrNewer = "9.0";
@@ -49,8 +53,9 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 - Unity-side project setting cannot be bypassed by CLI parameters.
 - `--file` must point to `.aibridge/code/*.cs` or `.aibridge/code/*.csx`.
 - `--code` is intended for short snippets only.
-- Prefer file mode for one-off Editor generation scripts that create complex Prefabs, scenes, effects, or assets.
+- Prefer file mode for complex one-off Editor C# tasks: generated assets, structured analysis, diagnostics, Runtime/Public API calls, or multi-step UnityEditor API orchestration.
 - For generation scripts, keep output under a clear folder such as `Assets/AIBridgeGenerated/<TaskName>/` and return structured result data.
+- For existing Prefab structure changes prefer `prefab patch --dryRun true`; for single properties prefer `inspector`; for simple scene object edits prefer `gameobject`/`transform`.
 - Snippets are wrapped as `object Execute()` or `Task<object> ExecuteAsync()` when `await` is present.
 - Result data includes `enabled`, `source`, `elapsedMs`, `returnValue`, `logs`, `compileErrors`, and `exception` when applicable.
 - Use this only for trusted projects/callers; it is not a replacement for `compile unity` or `test run`.";
@@ -327,12 +332,21 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             File.WriteAllText(responsePath, BuildCompilerResponseFile(sourcePath, assemblyPath, GetSupportedCSharpLanguageVersion()), Encoding.UTF8);
 
             CompilerInvocation compiler;
-            if (!TryResolveCompiler(out compiler))
+            List<string> compilerProbePaths;
+            if (!TryResolveCompiler(out compiler, out compilerProbePaths))
             {
                 compileErrors.Add("C# compiler was not found in the Unity installation.");
+                for (var i = 0; i < compilerProbePaths.Count; i++)
+                {
+                    compileErrors.Add("Tried compiler path: " + compilerProbePaths[i]);
+                }
+
+                session.CompilerProbePaths = compilerProbePaths;
                 return false;
             }
 
+            session.Compiler = compiler;
+            session.CompilerProbePaths = compilerProbePaths;
             var output = RunCompilerProcess(compiler, responsePath, session.TimeoutMs, compileErrors);
             if (!string.IsNullOrEmpty(output))
             {
@@ -465,18 +479,12 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
         }
 
-        private static bool TryResolveCompiler(out CompilerInvocation compiler)
+        private static bool TryResolveCompiler(out CompilerInvocation compiler, out List<string> probePaths)
         {
             compiler = null;
             var contentsPath = EditorApplication.applicationContentsPath;
-            var candidates = new[]
-            {
-                // Unity 2019 的完整 Roslyn 工具链在 Tools/Roslyn；优先使用它，避免 mono/4.5/csc.exe 缺少 facade 依赖。
-                Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe"),
-                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn", "csc.exe"),
-                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "4.5", "csc.exe"),
-                Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll")
-            };
+            var candidates = GetCompilerCandidatePaths(contentsPath);
+            probePaths = candidates.ToList();
 
             for (var i = 0; i < candidates.Length; i++)
             {
@@ -490,6 +498,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 {
                     compiler = new CompilerInvocation
                     {
+                        CompilerPath = candidate,
                         FileName = "dotnet",
                         PrefixArguments = "\"" + candidate + "\""
                     };
@@ -501,6 +510,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 #if UNITY_EDITOR_WIN
                     compiler = new CompilerInvocation
                     {
+                        CompilerPath = candidate,
                         FileName = candidate,
                         PrefixArguments = string.Empty
                     };
@@ -508,6 +518,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                     var monoPath = Path.Combine(contentsPath, "MonoBleedingEdge", "bin", "mono");
                     compiler = new CompilerInvocation
                     {
+                        CompilerPath = candidate,
                         FileName = File.Exists(monoPath) ? monoPath : candidate,
                         PrefixArguments = File.Exists(monoPath) ? "\"" + candidate + "\"" : string.Empty
                     };
@@ -517,6 +528,7 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 {
                     compiler = new CompilerInvocation
                     {
+                        CompilerPath = candidate,
                         FileName = candidate,
                         PrefixArguments = string.Empty
                     };
@@ -528,6 +540,18 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             return false;
         }
 
+        internal static string[] GetCompilerCandidatePaths(string contentsPath)
+        {
+            return new[]
+            {
+                // Unity 2019 的完整 Roslyn 工具链在 Tools/Roslyn；优先使用它，避免 mono/4.5/csc.exe 缺少 facade 依赖。
+                Path.Combine(contentsPath, "Tools", "Roslyn", "csc.exe"),
+                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "msbuild", "Current", "bin", "Roslyn", "csc.exe"),
+                Path.Combine(contentsPath, "MonoBleedingEdge", "lib", "mono", "4.5", "csc.exe"),
+                Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll")
+            };
+        }
+
         private static string RunCompilerProcess(CompilerInvocation compiler, string responsePath, int timeoutMs, List<string> compileErrors)
         {
             var arguments = string.IsNullOrEmpty(compiler.PrefixArguments)
@@ -535,6 +559,9 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 : compiler.PrefixArguments + " @\"" + responsePath + "\"";
 
             var outputBuilder = new StringBuilder();
+            var outputEncoding = ResolveCompilerOutputEncoding();
+            compiler.Arguments = arguments;
+            compiler.OutputEncodingName = GetEncodingDisplayName(outputEncoding);
             var startInfo = new ProcessStartInfo
             {
                 FileName = string.IsNullOrEmpty(compiler.FileName) ? FallbackCompilerProcessName : compiler.FileName,
@@ -544,8 +571,8 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                StandardOutputEncoding = outputEncoding,
+                StandardErrorEncoding = outputEncoding
             };
 
             using (var process = new Process())
@@ -607,6 +634,26 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             }
 
             return outputBuilder.ToString();
+        }
+
+        internal static Encoding ResolveCompilerOutputEncoding()
+        {
+#if UNITY_EDITOR_WIN
+            // Unity/Windows 旧版 Roslyn 的中文诊断常按本机代码页输出，强制 UTF-8 会产生乱码。
+            return Encoding.Default;
+#else
+            return Encoding.UTF8;
+#endif
+        }
+
+        private static string GetEncodingDisplayName(Encoding encoding)
+        {
+            if (encoding == null)
+            {
+                return null;
+            }
+
+            return encoding.WebName + " (codePage " + encoding.CodePage + ")";
         }
 
         private static void CollectCompilerErrors(string output, List<string> compileErrors)
@@ -712,7 +759,25 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 logs = session.Logs,
                 compileErrors = compileErrors ?? new List<string>(),
                 compilerOutput = session.CompilerOutput,
+                compiler = BuildCompilerInfo(session),
+                compilerProbePaths = session.CompilerProbePaths ?? new List<string>(),
                 exception = exception
+            };
+        }
+
+        private static object BuildCompilerInfo(CodeExecutionSession session)
+        {
+            if (session == null || session.Compiler == null)
+            {
+                return null;
+            }
+
+            return new
+            {
+                compilerPath = session.Compiler.CompilerPath,
+                processPath = session.Compiler.FileName,
+                arguments = session.Compiler.Arguments,
+                outputEncoding = session.Compiler.OutputEncodingName
             };
         }
 
@@ -738,17 +803,51 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             };
         }
 
-        private static object NormalizeReturnValue(object value)
+        internal static object NormalizeReturnValue(object value)
+        {
+            return NormalizeReturnValue(value, 0, new HashSet<object>(ReferenceEqualityComparer.Instance));
+        }
+
+        private static object NormalizeReturnValue(object value, int depth, HashSet<object> visited)
         {
             if (value == null)
             {
                 return null;
             }
 
+            if (depth > MaxNormalizedDepth)
+            {
+                return new
+                {
+                    type = value.GetType().FullName,
+                    value = "<max depth reached>"
+                };
+            }
+
             var type = value.GetType();
             if (type.IsPrimitive || value is string || value is decimal)
             {
                 return value;
+            }
+
+            if (value is DateTime dateTime)
+            {
+                return dateTime.ToString("o", CultureInfo.InvariantCulture);
+            }
+
+            if (value is DateTimeOffset dateTimeOffset)
+            {
+                return dateTimeOffset.ToString("o", CultureInfo.InvariantCulture);
+            }
+
+            if (value is TimeSpan timeSpan)
+            {
+                return timeSpan.ToString();
+            }
+
+            if (value is Guid)
+            {
+                return value.ToString();
             }
 
             if (value is Enum)
@@ -765,6 +864,12 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                     name = unityObject.name,
                     instanceId = unityObject.GetInstanceID()
                 };
+            }
+
+            var generationResult = value as AIBridgeGenerationResult;
+            if (generationResult != null)
+            {
+                return NormalizeGenerationResult(generationResult);
             }
 
             if (value is Vector2 vector2)
@@ -795,12 +900,17 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             var dictionary = value as IDictionary;
             if (dictionary != null)
             {
-                return dictionary;
+                return NormalizeDictionary(dictionary, depth, visited);
             }
 
             if (value is IEnumerable && !(value is string))
             {
-                return value;
+                return NormalizeEnumerable((IEnumerable)value, depth, visited);
+            }
+
+            if (IsStructuredReturnType(type))
+            {
+                return NormalizeStructuredObject(value, type, depth, visited);
             }
 
             return new
@@ -808,6 +918,164 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
                 type = type.FullName,
                 value = value.ToString()
             };
+        }
+
+        private static object NormalizeGenerationResult(AIBridgeGenerationResult result)
+        {
+            return new
+            {
+                assets = result.assets,
+                prefabs = result.prefabs,
+                scenes = result.scenes,
+                warnings = result.warnings,
+                messages = result.messages
+            };
+        }
+
+        private static object NormalizeDictionary(IDictionary dictionary, int depth, HashSet<object> visited)
+        {
+            if (!TryEnterReference(dictionary, visited))
+            {
+                return new
+                {
+                    type = dictionary.GetType().FullName,
+                    value = "<cycle>"
+                };
+            }
+
+            var result = new Dictionary<string, object>();
+            try
+            {
+                foreach (DictionaryEntry entry in dictionary)
+                {
+                    var key = Convert.ToString(entry.Key, CultureInfo.InvariantCulture);
+                    result[key] = NormalizeReturnValue(entry.Value, depth + 1, visited);
+                }
+
+                return result;
+            }
+            finally
+            {
+                visited.Remove(dictionary);
+            }
+        }
+
+        private static object NormalizeEnumerable(IEnumerable enumerable, int depth, HashSet<object> visited)
+        {
+            if (!TryEnterReference(enumerable, visited))
+            {
+                return new
+                {
+                    type = enumerable.GetType().FullName,
+                    value = "<cycle>"
+                };
+            }
+
+            var result = new List<object>();
+            var count = 0;
+            try
+            {
+                foreach (var item in enumerable)
+                {
+                    if (count >= MaxNormalizedCollectionItems)
+                    {
+                        result.Add("<truncated after " + MaxNormalizedCollectionItems + " items>");
+                        break;
+                    }
+
+                    result.Add(NormalizeReturnValue(item, depth + 1, visited));
+                    count++;
+                }
+
+                return result;
+            }
+            finally
+            {
+                visited.Remove(enumerable);
+            }
+        }
+
+        private static object NormalizeStructuredObject(object value, Type type, int depth, HashSet<object> visited)
+        {
+            if (!TryEnterReference(value, visited))
+            {
+                return new
+                {
+                    type = type.FullName,
+                    value = "<cycle>"
+                };
+            }
+
+            // 返回值可能来自临时脚本的匿名对象或 [Serializable] DTO；这里只展开公开成员，并跳过读取失败的属性。
+            var result = new Dictionary<string, object>();
+            try
+            {
+                var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public);
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    var field = fields[i];
+                    result[field.Name] = NormalizeReturnValue(field.GetValue(value), depth + 1, visited);
+                }
+
+                var properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+                for (var i = 0; i < properties.Length; i++)
+                {
+                    var property = properties[i];
+                    if (!property.CanRead || property.GetIndexParameters().Length > 0)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        result[property.Name] = NormalizeReturnValue(property.GetValue(value, null), depth + 1, visited);
+                    }
+                    catch
+                    {
+                        result[property.Name] = "<property read failed>";
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                visited.Remove(value);
+            }
+        }
+
+        private static bool IsStructuredReturnType(Type type)
+        {
+            if (type == null || type.IsPrimitive || type.IsEnum)
+            {
+                return false;
+            }
+
+            if (type.IsSerializable)
+            {
+                return true;
+            }
+
+            return IsAnonymousType(type);
+        }
+
+        private static bool IsAnonymousType(Type type)
+        {
+            return type != null
+                   && Attribute.IsDefined(type, typeof(CompilerGeneratedAttribute), false)
+                   && type.IsGenericType
+                   && type.Name.IndexOf("AnonymousType", StringComparison.Ordinal) >= 0;
+        }
+
+        private static bool TryEnterReference(object value, HashSet<object> visited)
+        {
+            var type = value.GetType();
+            if (type.IsValueType)
+            {
+                return true;
+            }
+
+            return visited.Add(value);
         }
 
         private static CommandResult FailureWithData(string requestId, string error, object data)
@@ -872,8 +1140,26 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
 
         private sealed class CompilerInvocation
         {
+            public string CompilerPath;
             public string FileName;
             public string PrefixArguments;
+            public string Arguments;
+            public string OutputEncodingName;
+        }
+
+        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
+        {
+            public static readonly ReferenceEqualityComparer Instance = new ReferenceEqualityComparer();
+
+            public new bool Equals(object x, object y)
+            {
+                return ReferenceEquals(x, y);
+            }
+
+            public int GetHashCode(object obj)
+            {
+                return obj == null ? 0 : RuntimeHelpers.GetHashCode(obj);
+            }
         }
 
         private sealed class InvocationResult
@@ -908,6 +1194,8 @@ $CLI code execute --code ""Debug.Log(\""hello\""); return 123;"" --allow-experim
             public List<CapturedLog> Logs;
             public string CompiledAssemblyPath;
             public string CompilerOutput;
+            public CompilerInvocation Compiler;
+            public List<string> CompilerProbePaths;
 
             public void OnLogMessageReceived(string condition, string stackTrace, LogType type)
             {
