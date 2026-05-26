@@ -5,7 +5,6 @@ namespace AIBridgeCLI.Core
     public enum RuntimeTransportKind
     {
         File,
-        Adb,
         Http
     }
 
@@ -13,10 +12,6 @@ namespace AIBridgeCLI.Core
     {
         public const string DefaultTarget = "latest";
         public const string TransportEnvironment = "AIBRIDGE_RUNTIME_TRANSPORT";
-        public const string AdbPathEnvironment = "AIBRIDGE_ADB";
-        public const string AdbDeviceEnvironment = "AIBRIDGE_RUNTIME_DEVICE";
-        public const string AndroidPackageEnvironment = "AIBRIDGE_ANDROID_PACKAGE";
-        public const string DevicePathEnvironment = "AIBRIDGE_RUNTIME_DEVICE_PATH";
         public const string DefaultHttpUrl = "http://127.0.0.1:27182";
         public const string HttpUrlEnvironment = "AIBRIDGE_RUNTIME_URL";
         public const string TokenEnvironment = "AIBRIDGE_RUNTIME_TOKEN";
@@ -26,10 +21,6 @@ namespace AIBridgeCLI.Core
         public string Target { get; private set; }
         public int TimeoutMs { get; private set; }
         public int PollIntervalMs { get; private set; }
-        public string AdbPath { get; private set; }
-        public string DeviceSerial { get; private set; }
-        public string AndroidPackageName { get; private set; }
-        public string DevicePath { get; private set; }
         public string HttpUrl { get; private set; }
         public string Token { get; private set; }
 
@@ -53,10 +44,6 @@ namespace AIBridgeCLI.Core
                 Target = string.IsNullOrWhiteSpace(target) ? DefaultTarget : target,
                 TimeoutMs = timeoutMs,
                 PollIntervalMs = pollIntervalMs,
-                AdbPath = ResolveOption(commandLineOptions, "adb", AdbPathEnvironment),
-                DeviceSerial = ResolveOption(commandLineOptions, "device", AdbDeviceEnvironment),
-                AndroidPackageName = ResolveOption(commandLineOptions, "package", AndroidPackageEnvironment),
-                DevicePath = ResolveOption(commandLineOptions, "device-path", DevicePathEnvironment),
                 HttpUrl = NormalizeHttpUrl(ResolveOption(commandLineOptions, "url", HttpUrlEnvironment)),
                 Token = ResolveOption(commandLineOptions, "token", TokenEnvironment)
             };
@@ -80,17 +67,17 @@ namespace AIBridgeCLI.Core
                 return RuntimeTransportKind.File;
             }
 
-            if (string.Equals(transport, "adb", StringComparison.OrdinalIgnoreCase))
-            {
-                return RuntimeTransportKind.Adb;
-            }
-
             if (string.Equals(transport, "http", StringComparison.OrdinalIgnoreCase))
             {
                 return RuntimeTransportKind.Http;
             }
 
-            throw new ArgumentException($"Unsupported runtime transport: {transport}. Supported transports: file, adb, http.");
+            if (string.Equals(transport, "adb", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Runtime adb transport has been removed from the core transport path. Use Android USB port forwarding instead: adb reverse tcp:27182 tcp:27182, then run runtime commands with --transport http --url http://127.0.0.1:27182.");
+            }
+
+            throw new ArgumentException($"Unsupported runtime transport: {transport}. Supported transports: file, http.");
         }
 
         private static string ResolveOption(System.Collections.Generic.Dictionary<string, string> options, string key, string environmentName)

@@ -413,11 +413,66 @@ namespace AIBridge.Runtime
         private IEnumerator SamplePerformance(AIBridgeRuntimeCommand cmd)
         {
             RuntimePerfResult perfResult = null;
-            var sampler = new RuntimePerfSampler(cmd);
-            yield return sampler.Sample(_targetId, value => perfResult = value);
+            AIBridgeRuntimeCommandResult finalResult = null;
+            RuntimePerfSampler sampler = null;
+            IEnumerator sampling = null;
 
-            var result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, perfResult);
-            WriteResult(result);
+            try
+            {
+                sampler = new RuntimePerfSampler(cmd);
+                sampling = sampler.Sample(_targetId, value => perfResult = value);
+            }
+            catch (Exception ex)
+            {
+                finalResult = AIBridgeRuntimeCommandResult.FromFailure(cmd.Id, "perf_failed: " + ex.Message);
+            }
+
+            // 手动驱动采样协程，确保采样异常也能写回 result，避免 CLI 只看到 timeout。
+            while (finalResult == null && sampling != null)
+            {
+                object current = null;
+                var moveNext = false;
+                try
+                {
+                    moveNext = sampling.MoveNext();
+                    if (moveNext)
+                    {
+                        current = sampling.Current;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    finalResult = AIBridgeRuntimeCommandResult.FromFailure(cmd.Id, "perf_failed: " + ex.Message);
+                    break;
+                }
+
+                if (!moveNext)
+                {
+                    break;
+                }
+
+                yield return current;
+            }
+
+            var samplingDisposable = sampling as IDisposable;
+            if (samplingDisposable != null)
+            {
+                try { samplingDisposable.Dispose(); } catch { }
+            }
+
+            if (sampler != null)
+            {
+                try { sampler.Dispose(); } catch { }
+            }
+
+            if (finalResult == null)
+            {
+                finalResult = perfResult != null
+                    ? AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, perfResult)
+                    : AIBridgeRuntimeCommandResult.FromFailure(cmd.Id, "perf_failed: sampler produced no result.");
+            }
+
+            WriteResult(finalResult);
         }
 
         private IEnumerator CaptureScreenshot(AIBridgeRuntimeCommand cmd)
@@ -1261,7 +1316,6 @@ namespace AIBridge.Runtime
                 ["screenshotPull"] = true,
                 ["logsClear"] = true,
                 ["file"] = true,
-                ["adb"] = false,
                 ["http"] = _httpTransportServer != null && _httpTransportServer.IsRunning,
                 ["ws"] = false
             };

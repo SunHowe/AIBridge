@@ -106,11 +106,15 @@ Configure defaults in `AIBridge/Settings > Runtime`, and inspect live targets in
 ```bash
 $CLI runtime list_targets
 $CLI runtime status --target latest
+$CLI runtime diagnose --target latest
 $CLI runtime logs --target latest --logType Error --count 100
+$CLI runtime perf --target latest --duration 5s --interval 100ms
 $CLI runtime screenshot --target latest
 $CLI runtime handlers --target latest
 $CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
 ```
+
+For remote phones, prefer HTTP transport. On Android USB, run `adb reverse tcp:27182 tcp:27182` first, then call `--transport http --url http://127.0.0.1:27182`; `adb` is not a runtime transport mode.
 
 ---
 

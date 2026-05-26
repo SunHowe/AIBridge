@@ -248,11 +248,15 @@ Use `AIBridge/Settings > Runtime` to configure default enablement, Release Build
 ```bash
 $CLI runtime list_targets
 $CLI runtime status --target latest
+$CLI runtime diagnose --target latest
 $CLI runtime logs --target latest --logType Error --count 100
+$CLI runtime perf --target latest --duration 5s --interval 100ms
 $CLI runtime screenshot --target latest
 $CLI runtime handlers --target latest
 $CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"Inventory\"}"
 ```
+
+For remote phones, prefer HTTP transport. For Android USB debugging, run `adb reverse tcp:27182 tcp:27182`, then connect with `--transport http --url http://127.0.0.1:27182`; `adb` is not a standalone Runtime transport.
 
 Runtime Bridge v1 only provides status, logs, screenshots, and explicitly registered handler calls. It does not include in-game LLMs, arbitrary C# execution, or unallowlisted reflection calls. Release Builds are off by default and should only enable this bridge after the project accepts the security boundary.
 
