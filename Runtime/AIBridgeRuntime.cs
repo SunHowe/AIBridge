@@ -1,9 +1,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using AIBridge.Internal.Json;
+using AIBridge.Runtime.Diagnostics;
+using AIBridge.Runtime.Transports;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -32,6 +37,8 @@ namespace AIBridge.Runtime
             "runtime.ping",
             "runtime.status",
             "runtime.logs",
+            "runtime.logs.clear",
+            "runtime.perf",
             "runtime.screenshot",
             "runtime.handlers"
         };
@@ -73,6 +80,10 @@ namespace AIBridge.Runtime
         private readonly List<IAIBridgeHandler> _handlers = new List<IAIBridgeHandler>();
         private readonly List<IAIBridgeAsyncHandler> _asyncHandlers = new List<IAIBridgeAsyncHandler>();
         private readonly AIBridgeRuntimeLogBuffer _logBuffer = new AIBridgeRuntimeLogBuffer();
+        private readonly object _pendingHttpResultsSyncRoot = new object();
+        private readonly Dictionary<string, AIBridgeRuntimeCommandResult> _pendingHttpResults = new Dictionary<string, AIBridgeRuntimeCommandResult>();
+        private readonly HashSet<string> _httpCommandIds = new HashSet<string>();
+        private HttpRuntimeTransportServer _httpTransportServer;
 
         private float _lastPollTime;
         private float _lastHeartbeatTime;
@@ -98,6 +109,7 @@ namespace AIBridge.Runtime
         {
             if (Instance == this)
             {
+                StopHttpTransport();
                 Instance = null;
                 _logBuffer.Dispose();
                 LogDebug("Destroyed");
@@ -121,9 +133,19 @@ namespace AIBridge.Runtime
             }
 
             var processed = 0;
-            while (processed < maxCommandsPerFrame && _commandQueue.Count > 0)
+            while (processed < maxCommandsPerFrame)
             {
-                var cmd = _commandQueue.Dequeue();
+                AIBridgeRuntimeCommand cmd = null;
+                lock (_commandQueue)
+                {
+                    if (_commandQueue.Count == 0)
+                    {
+                        break;
+                    }
+
+                    cmd = _commandQueue.Dequeue();
+                }
+
                 ProcessCommand(cmd);
                 processed++;
             }
@@ -199,6 +221,7 @@ namespace AIBridge.Runtime
                 Directory.CreateDirectory(_screenshotsPath);
                 _logBuffer.Initialize(Math.Max(1, runtimeSettings.logBufferSize));
                 _initialized = true;
+                StartHttpTransportIfNeeded();
                 WriteHeartbeat();
             }
             catch (Exception e)
@@ -238,7 +261,11 @@ namespace AIBridge.Runtime
 
                     if (cmd != null)
                     {
-                        _commandQueue.Enqueue(cmd);
+                        lock (_commandQueue)
+                        {
+                            _commandQueue.Enqueue(cmd);
+                        }
+
                         File.Delete(file);
                         LogDebug($"Queued command: {cmd.Action} - {cmd.Id}");
                     }
@@ -360,7 +387,12 @@ namespace AIBridge.Runtime
                     result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildStatusData());
                     return true;
                 case "runtime.logs":
+                case "runtime.logs.clear":
                     result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildLogsData(cmd));
+                    return true;
+                case "runtime.perf":
+                    StartCoroutine(SamplePerformance(cmd));
+                    asyncStarted = true;
                     return true;
                 case "runtime.handlers":
                     result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, new
@@ -376,6 +408,16 @@ namespace AIBridge.Runtime
                 default:
                     return false;
             }
+        }
+
+        private IEnumerator SamplePerformance(AIBridgeRuntimeCommand cmd)
+        {
+            RuntimePerfResult perfResult = null;
+            var sampler = new RuntimePerfSampler(cmd);
+            yield return sampler.Sample(_targetId, value => perfResult = value);
+
+            var result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, perfResult);
+            WriteResult(result);
         }
 
         private IEnumerator CaptureScreenshot(AIBridgeRuntimeCommand cmd)
@@ -394,7 +436,10 @@ namespace AIBridge.Runtime
                 }
                 else
                 {
-                    var filename = "runtime_screenshot_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff") + ".png";
+                    var capturedAtUtc = DateTime.UtcNow;
+                    var capturedFrame = Time.frameCount;
+                    var safeArea = Screen.safeArea;
+                    var filename = "runtime_screenshot_" + capturedAtUtc.ToString("yyyyMMdd_HHmmss_fff") + ".png";
                     var path = Path.Combine(_screenshotsPath, filename);
                     var bytes = texture.EncodeToPNG();
                     File.WriteAllBytes(path, bytes);
@@ -406,6 +451,22 @@ namespace AIBridge.Runtime
                         width = texture.width,
                         height = texture.height,
                         fileSize = bytes == null ? 0 : bytes.Length,
+                        orientation = Screen.orientation.ToString(),
+                        safeArea = new
+                        {
+                            x = safeArea.x,
+                            y = safeArea.y,
+                            width = safeArea.width,
+                            height = safeArea.height,
+                            xMin = safeArea.xMin,
+                            yMin = safeArea.yMin,
+                            xMax = safeArea.xMax,
+                            yMax = safeArea.yMax
+                        },
+                        screenDpi = Screen.dpi,
+                        capturedFrame = capturedFrame,
+                        capturedAtUtc = capturedAtUtc.ToString("o"),
+                        sha256 = ComputeSha256(bytes),
                         timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                     });
                 }
@@ -430,6 +491,9 @@ namespace AIBridge.Runtime
             return new
             {
                 targetId = _targetId,
+                protocolVersion = 2,
+                transport = "file",
+                capabilities = BuildCapabilitiesData(),
                 runtimeVersion = RuntimeVersion,
                 productName = Application.productName,
                 applicationVersion = Application.version,
@@ -457,18 +521,222 @@ namespace AIBridge.Runtime
 
         private object BuildLogsData(AIBridgeRuntimeCommand cmd)
         {
-            var count = cmd.GetParam("count", 50);
-            var logType = cmd.GetParam("logType", "all");
-            var regex = cmd.GetParam<string>("regex", null);
-            var includeStackTrace = cmd.GetParam("includeStackTrace", false);
-            var logs = _logBuffer.GetEntries(count, logType, regex, includeStackTrace);
+            var clear = string.Equals(cmd.Action, "runtime.logs.clear", StringComparison.OrdinalIgnoreCase)
+                || ReadBoolParam(cmd, "clear", false)
+                || string.Equals(ReadStringParam(cmd, "operation", null), "clear", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ReadStringParam(cmd, "mode", null), "clear", StringComparison.OrdinalIgnoreCase);
+
+            if (clear)
+            {
+                var clearedCount = _logBuffer.Clear();
+                return new
+                {
+                    logs = new AIBridgeRuntimeLogEntry[0],
+                    count = 0,
+                    clearedCount = clearedCount,
+                    bufferCount = _logBuffer.Count,
+                    targetId = _targetId
+                };
+            }
+
+            var count = ReadIntParam(cmd, "tail", ReadIntParam(cmd, "count", 50));
+            var logType = ReadStringParam(cmd, "logType", "all");
+            var regex = ReadStringParam(cmd, "regex", null);
+            var includeStackTrace = ReadBoolParam(cmd, "includeStackTrace", false);
+            var sinceFrame = ReadNullableIntParam(cmd, "sinceFrame");
+            var sinceTimestamp = ReadSinceTimestampParam(cmd);
+            var logs = _logBuffer.GetEntries(count, logType, regex, includeStackTrace, sinceFrame, sinceTimestamp);
             return new
             {
                 logs = logs,
                 count = logs.Length,
                 bufferCount = _logBuffer.Count,
+                filters = new
+                {
+                    logType = logType,
+                    regex = regex,
+                    includeStackTrace = includeStackTrace,
+                    tail = count,
+                    sinceFrame = sinceFrame,
+                    sinceTime = sinceTimestamp
+                },
                 targetId = _targetId
             };
+        }
+
+        private static bool ReadBoolParam(AIBridgeRuntimeCommand cmd, string key, bool defaultValue)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return defaultValue;
+            }
+
+            if (value is bool boolValue)
+            {
+                return boolValue;
+            }
+
+            if (value is int intValue)
+            {
+                return intValue != 0;
+            }
+
+            if (value is long longValue)
+            {
+                return longValue != 0L;
+            }
+
+            var text = Convert.ToString(value, CultureInfo.InvariantCulture);
+            if (string.Equals(text, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "y", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(text, "0", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "no", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "n", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return bool.TryParse(text, out var parsed) ? parsed : defaultValue;
+        }
+
+        private static int ReadIntParam(AIBridgeRuntimeCommand cmd, string key, int defaultValue)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return defaultValue;
+            }
+
+            if (value is int intValue)
+            {
+                return intValue;
+            }
+
+            if (value is long longValue)
+            {
+                return longValue < int.MinValue || longValue > int.MaxValue ? defaultValue : (int)longValue;
+            }
+
+            return int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : defaultValue;
+        }
+
+        private static int? ReadNullableIntParam(AIBridgeRuntimeCommand cmd, string key)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return null;
+            }
+
+            if (value is int intValue)
+            {
+                return intValue;
+            }
+
+            if (value is long longValue)
+            {
+                return longValue < int.MinValue || longValue > int.MaxValue ? (int?)null : (int)longValue;
+            }
+
+            return int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : (int?)null;
+        }
+
+        private static string ReadStringParam(AIBridgeRuntimeCommand cmd, string key, string defaultValue)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return defaultValue;
+            }
+
+            return Convert.ToString(value, CultureInfo.InvariantCulture);
+        }
+
+        private static long? ReadSinceTimestampParam(AIBridgeRuntimeCommand cmd)
+        {
+            if (TryGetCommandParam(cmd, "sinceTimestamp", out var timestamp)
+                || TryGetCommandParam(cmd, "sinceTimeMs", out timestamp))
+            {
+                return ParseUnixTimestampMilliseconds(timestamp);
+            }
+
+            if (!TryGetCommandParam(cmd, "sinceTime", out var sinceTime) || sinceTime == null)
+            {
+                return null;
+            }
+
+            var numericTimestamp = ParseUnixTimestampMilliseconds(sinceTime);
+            if (numericTimestamp.HasValue)
+            {
+                return numericTimestamp;
+            }
+
+            var text = Convert.ToString(sinceTime, CultureInfo.InvariantCulture);
+            if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+            {
+                return parsed.ToUnixTimeMilliseconds();
+            }
+
+            return null;
+        }
+
+        private static long? ParseUnixTimestampMilliseconds(object value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+
+            long parsed;
+            if (value is long longValue)
+            {
+                parsed = longValue;
+            }
+            else if (value is int intValue)
+            {
+                parsed = intValue;
+            }
+            else if (value is double doubleValue)
+            {
+                parsed = (long)Math.Round(doubleValue);
+            }
+            else if (value is float floatValue)
+            {
+                parsed = (long)Math.Round(floatValue);
+            }
+            else if (!long.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
+            {
+                return null;
+            }
+
+            // 允许 Unix 秒输入，内部统一为毫秒。
+            return parsed > 0L && parsed < 100000000000L ? parsed * 1000L : parsed;
+        }
+
+        private static bool TryGetCommandParam(AIBridgeRuntimeCommand cmd, string key, out object value)
+        {
+            value = null;
+            if (cmd == null || cmd.Params == null || string.IsNullOrEmpty(key))
+            {
+                return false;
+            }
+
+            foreach (var pair in cmd.Params)
+            {
+                if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = pair.Value;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private List<object> GetLoadedScenes()
@@ -633,6 +901,9 @@ namespace AIBridge.Runtime
             var heartbeat = new Dictionary<string, object>
             {
                 ["targetId"] = _targetId,
+                ["protocolVersion"] = 2,
+                ["transport"] = "file",
+                ["capabilities"] = BuildCapabilitiesData(),
                 ["runtimeVersion"] = RuntimeVersion,
                 ["productName"] = Application.productName,
                 ["applicationVersion"] = Application.version,
@@ -647,7 +918,8 @@ namespace AIBridge.Runtime
                 ["runtimeRoot"] = _runtimeRootPath,
                 ["targetPath"] = _targetPath,
                 ["commandsPath"] = _commandsPath,
-                ["resultsPath"] = _resultsPath
+                ["resultsPath"] = _resultsPath,
+                ["screenshotsPath"] = _screenshotsPath
             };
 
             try
@@ -679,11 +951,13 @@ namespace AIBridge.Runtime
                     json = AIBridgeJson.Serialize(result, pretty: true);
                 }
 
+                CacheHttpResult(result);
                 WriteTextAtomic(filePath, json);
                 LogDebug($"Wrote result: {fileName}");
             }
             catch (Exception e)
             {
+                CacheHttpResult(result);
                 Debug.LogError($"[AIBridgeRuntime] Failed to write result: {e.Message}");
             }
         }
@@ -813,6 +1087,203 @@ namespace AIBridge.Runtime
             catch
             {
                 return 0;
+            }
+        }
+
+        internal string TargetId => _targetId;
+
+        internal bool IsHttpTransportEnabled()
+        {
+            if (runtimeSettings == null || !runtimeSettings.enableHttpTransport)
+            {
+                return false;
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            return true;
+#else
+            return runtimeSettings.allowInReleaseBuild;
+#endif
+        }
+
+        internal Dictionary<string, object> BuildHttpHealthData()
+        {
+            // HTTP 请求在后台线程处理，health 只读取运行时缓存字段，避免跨线程访问 Unity API。
+            return new Dictionary<string, object>
+            {
+                ["targetId"] = _targetId,
+                ["protocolVersion"] = 2,
+                ["transport"] = "http",
+                ["runtimeVersion"] = RuntimeVersion,
+                ["uptimeSeconds"] = (DateTime.UtcNow - _startedAtUtc).TotalSeconds,
+                ["lastHeartbeatUtc"] = DateTime.UtcNow.ToString("o"),
+                ["capabilities"] = BuildCapabilitiesData()
+            };
+        }
+
+        internal void EnqueueHttpCommand(AIBridgeRuntimeCommand command)
+        {
+            if (command == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(command.Id))
+            {
+                lock (_pendingHttpResultsSyncRoot)
+                {
+                    _httpCommandIds.Add(command.Id);
+                }
+            }
+
+            lock (_commandQueue)
+            {
+                _commandQueue.Enqueue(command);
+            }
+        }
+
+        internal bool TryGetHttpResult(string commandId, bool remove, out AIBridgeRuntimeCommandResult result)
+        {
+            result = null;
+            if (string.IsNullOrEmpty(commandId))
+            {
+                return false;
+            }
+
+            lock (_pendingHttpResultsSyncRoot)
+            {
+                if (!_pendingHttpResults.TryGetValue(commandId, out result))
+                {
+                    return false;
+                }
+
+                if (remove)
+                {
+                    _pendingHttpResults.Remove(commandId);
+                    _httpCommandIds.Remove(commandId);
+                }
+
+                return true;
+            }
+        }
+
+        internal bool TryReadHttpScreenshotArtifact(string filename, out byte[] bytes)
+        {
+            bytes = null;
+            if (string.IsNullOrEmpty(filename) || string.IsNullOrEmpty(_screenshotsPath))
+            {
+                return false;
+            }
+
+            var safeName = Path.GetFileName(filename);
+            if (string.IsNullOrEmpty(safeName) || !string.Equals(safeName, filename, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var path = Path.Combine(_screenshotsPath, safeName);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            bytes = File.ReadAllBytes(path);
+            return true;
+        }
+
+        private void StartHttpTransportIfNeeded()
+        {
+            if (!IsHttpTransportEnabled())
+            {
+                return;
+            }
+
+            if (_httpTransportServer != null)
+            {
+                return;
+            }
+
+            HttpRuntimeTransportServer server = null;
+            try
+            {
+                server = new HttpRuntimeTransportServer(this, runtimeSettings);
+                server.Start();
+                _httpTransportServer = server;
+            }
+            catch (Exception ex)
+            {
+                if (server != null)
+                {
+                    server.Dispose();
+                }
+
+                Debug.LogError("[AIBridgeRuntime] Failed to start HTTP transport: " + ex.Message);
+                _httpTransportServer = null;
+            }
+        }
+
+        private void StopHttpTransport()
+        {
+            if (_httpTransportServer == null)
+            {
+                return;
+            }
+
+            _httpTransportServer.Dispose();
+            _httpTransportServer = null;
+        }
+
+        private void CacheHttpResult(AIBridgeRuntimeCommandResult result)
+        {
+            if (result == null || string.IsNullOrEmpty(result.CommandId))
+            {
+                return;
+            }
+
+            lock (_pendingHttpResultsSyncRoot)
+            {
+                if (!_httpCommandIds.Contains(result.CommandId))
+                {
+                    return;
+                }
+
+                _pendingHttpResults[result.CommandId] = result;
+                Monitor.PulseAll(_pendingHttpResultsSyncRoot);
+            }
+        }
+
+        private Dictionary<string, object> BuildCapabilitiesData()
+        {
+            return new Dictionary<string, object>
+            {
+                ["perf"] = true,
+                ["diagnose"] = true,
+                ["screenshotPull"] = true,
+                ["logsClear"] = true,
+                ["file"] = true,
+                ["adb"] = false,
+                ["http"] = _httpTransportServer != null && _httpTransportServer.IsRunning,
+                ["ws"] = false
+            };
+        }
+
+        private static string ComputeSha256(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            using (var sha256 = SHA256.Create())
+            {
+                var hash = sha256.ComputeHash(bytes);
+                var builder = new StringBuilder(hash.Length * 2);
+                for (var i = 0; i < hash.Length; i++)
+                {
+                    builder.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                }
+
+                return builder.ToString();
             }
         }
 

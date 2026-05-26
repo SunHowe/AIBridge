@@ -27,9 +27,22 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Enable Runtime Bridge", "启用 Runtime Bridge"),
                 settings.EnableRuntimeBridge);
 
-            settings.AllowInReleaseBuild = EditorGUILayout.Toggle(
-                AIBridgeEditorText.T("Allow In Release Build", "允许 Release Build 启用"),
-                settings.AllowInReleaseBuild);
+            settings.AutoInjectRuntimeBridgeInDevelopmentBuild = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Auto Inject In Development Build", "Development Build 自动注入"),
+                settings.AutoInjectRuntimeBridgeInDevelopmentBuild);
+
+            settings.AllowRuntimeBridgeInReleaseBuild = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Allow Runtime Bridge In Release Build", "允许 Release Build 启用 Runtime Bridge"),
+                settings.AllowRuntimeBridgeInReleaseBuild);
+
+            if (settings.AllowRuntimeBridgeInReleaseBuild)
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Release Build Runtime Bridge is a debugging backdoor. Use an auth token and restrict Allowed Actions before shipping.",
+                        "Release Build Runtime Bridge 是调试入口。发布前请设置鉴权 Token 并限制 Allowed Actions。"),
+                    MessageType.Warning);
+            }
 
             settings.ExchangeDirectory = EditorGUILayout.DelayedTextField(
                 AIBridgeEditorText.T("Runtime Directory", "Runtime 目录"),
@@ -67,6 +80,7 @@ namespace AIBridge.Editor
             {
                 settings.MaxResultBytes = Math.Max(1024, settings.MaxResultBytes);
                 AIBridgeProjectSettings.Instance.SaveSettings();
+                AIBridgeRuntimeBuildProcessor.SyncRuntimeBootstrapDefinesForActiveTarget();
             }
 
             EditorGUILayout.Space(8);

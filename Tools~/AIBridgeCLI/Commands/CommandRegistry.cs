@@ -108,6 +108,7 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("Global Options:");
             sb.AppendLine("  --timeout <ms>     Timeout in milliseconds (default: 5000)");
             sb.AppendLine("  --no-wait          Don't wait for result, return command ID immediately");
+            sb.AppendLine("  --transport <name> Runtime transport for runtime commands (default: file)");
             sb.AppendLine("  --on-dialog <mode> Handle Unity modal dialogs on timeout: none, wait, cancel, save, discard, ok, yes, no, delete, replace");
             sb.AppendLine("  --raw              Output compact raw JSON (default)");
             sb.AppendLine("  --pretty           Output human-readable formatted text");

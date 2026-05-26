@@ -58,6 +58,7 @@ namespace AIBridge.Editor
         internal sealed class RuntimeBridgeSettingsData
         {
             public bool EnableRuntimeBridge = DefaultRuntimeBridgeEnabled;
+            public bool AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
             public bool AllowInReleaseBuild = DefaultRuntimeBridgeAllowInReleaseBuild;
             public string ExchangeDirectory = DefaultRuntimeBridgeExchangeDirectory;
             public string TargetId = DefaultRuntimeBridgeTargetId;
@@ -66,9 +67,15 @@ namespace AIBridge.Editor
             public float HeartbeatIntervalSeconds = DefaultRuntimeBridgeHeartbeatIntervalSeconds;
             public int LogBufferSize = DefaultRuntimeBridgeLogBufferSize;
             public int MaxResultBytes = DefaultRuntimeBridgeMaxResultBytes;
+
+            public bool AllowRuntimeBridgeInReleaseBuild
+            {
+                get { return AllowInReleaseBuild; }
+                set { AllowInReleaseBuild = value; }
+            }
         }
 
-        public const int CurrentDataVersion = 9;
+        public const int CurrentDataVersion = 10;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -83,6 +90,7 @@ namespace AIBridge.Editor
         public const bool DefaultEnableCodeExecution = true;
         public const bool DefaultCodeExecutionRiskAccepted = true;
         public const bool DefaultRuntimeBridgeEnabled = true;
+        public const bool DefaultRuntimeBridgeAutoInjectInDevelopmentBuild = true;
         public const bool DefaultRuntimeBridgeAllowInReleaseBuild = false;
         public const string DefaultRuntimeBridgeExchangeDirectory = "";
         public const string DefaultRuntimeBridgeTargetId = "";
@@ -560,9 +568,14 @@ namespace AIBridge.Editor
                 codeExecutionRiskAccepted = DefaultCodeExecutionRiskAccepted;
             }
 
-            if (dataVersion < 9 && runtimeBridge == null)
+            if (runtimeBridge == null)
             {
                 runtimeBridge = new RuntimeBridgeSettingsData();
+            }
+
+            if (dataVersion < 10)
+            {
+                runtimeBridge.AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
             }
 
             if (dataVersion != CurrentDataVersion)

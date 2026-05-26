@@ -56,7 +56,28 @@ namespace AIBridge.Runtime
             _initialized = false;
         }
 
+        public int Clear()
+        {
+            lock (_syncRoot)
+            {
+                var count = _entries.Count;
+                _entries.Clear();
+                return count;
+            }
+        }
+
         public AIBridgeRuntimeLogEntry[] GetEntries(int count, string logType, string regexPattern, bool includeStackTrace)
+        {
+            return GetEntries(count, logType, regexPattern, includeStackTrace, null, null);
+        }
+
+        public AIBridgeRuntimeLogEntry[] GetEntries(
+            int count,
+            string logType,
+            string regexPattern,
+            bool includeStackTrace,
+            int? sinceFrame,
+            long? sinceTimestamp)
         {
             count = Math.Max(1, count);
             Regex regex = null;
@@ -72,6 +93,16 @@ namespace AIBridge.Runtime
                 {
                     var entry = _entries[i];
                     if (!MatchesLogType(logType, entry.type))
+                    {
+                        continue;
+                    }
+
+                    if (sinceFrame.HasValue && entry.frame < sinceFrame.Value)
+                    {
+                        continue;
+                    }
+
+                    if (sinceTimestamp.HasValue && entry.timestamp < sinceTimestamp.Value)
                     {
                         continue;
                     }

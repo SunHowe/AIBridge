@@ -10,8 +10,9 @@ namespace AIBridgeCLI
         {
             parsed.Options.TryGetValue("runtime-dir", out var runtimeDirectory);
             parsed.Options.TryGetValue("target", out var target);
+            parsed.Options.TryGetValue("transport", out var transport);
 
-            var sender = new RuntimeCommandSender(runtimeDirectory, target, timeout);
+            var sender = new RuntimeCommandSender(runtimeDirectory, target, timeout, transport: transport);
             CommandResult result;
 
             if (noWait)

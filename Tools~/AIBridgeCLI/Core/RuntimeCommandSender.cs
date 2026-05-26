@@ -1,23 +1,29 @@
 using System;
+using System.Globalization;
 using System.IO;
-using System.Text;
-using System.Threading;
-using Newtonsoft.Json;
+using System.Security.Cryptography;
 using Newtonsoft.Json.Linq;
 
 namespace AIBridgeCLI.Core
 {
     public class RuntimeCommandSender
     {
-        private readonly string _runtimeDirectory;
+        private readonly RuntimeTransportOptions _options;
+        private readonly IRuntimeTransportClient _transportClient;
         private readonly string _target;
         private readonly int _timeout;
         private readonly int _pollInterval;
 
-        public RuntimeCommandSender(string runtimeDirectoryOverride, string target, int timeout = 5000, int pollInterval = 50)
+        public RuntimeCommandSender(
+            string runtimeDirectoryOverride,
+            string target,
+            int timeout = 5000,
+            int pollInterval = 50,
+            string transport = null)
         {
-            _runtimeDirectory = RuntimePathHelper.ResolveRuntimeDirectory(runtimeDirectoryOverride);
-            _target = string.IsNullOrWhiteSpace(target) ? "latest" : target;
+            _options = RuntimeTransportOptions.Create(transport, runtimeDirectoryOverride, target, timeout, pollInterval);
+            _transportClient = RuntimeTransportClientFactory.Create(_options);
+            _target = _options.Target;
             _timeout = timeout;
             _pollInterval = pollInterval;
         }
@@ -30,52 +36,61 @@ namespace AIBridgeCLI.Core
                 return ListTargets(request?.id);
             }
 
-            var targetInfo = RuntimePathHelper.ResolveTarget(_runtimeDirectory, _target);
+            if (string.Equals(runtimeAction, "runtime.diagnose", StringComparison.OrdinalIgnoreCase))
+            {
+                return Diagnose(request?.id);
+            }
+
+            var targetInfo = _transportClient.ResolveTarget(_target);
             if (targetInfo == null)
             {
                 return CreateTargetNotFoundResult(request?.id);
             }
 
             EnsureRequestId(request);
-            WriteCommandFile(targetInfo, request);
 
-            var resultFile = Path.Combine(targetInfo.resultsPath, $"{request.id}.json");
-            var startTime = DateTime.UtcNow;
-            while ((DateTime.UtcNow - startTime).TotalMilliseconds < _timeout)
+            var sentAtUtc = DateTime.UtcNow.ToString("o");
+            var sendResult = _transportClient.Send(targetInfo, request);
+            if (!sendResult.Success)
             {
-                if (File.Exists(resultFile))
-                {
-                    Thread.Sleep(10);
-                    try
-                    {
-                        var resultJson = File.ReadAllText(resultFile, Encoding.UTF8);
-                        var result = ParseRuntimeResult(request.id, resultJson);
-                        try { File.Delete(resultFile); } catch { }
-                        return result;
-                    }
-                    catch (IOException)
-                    {
-                        Thread.Sleep(_pollInterval);
-                        continue;
-                    }
-                }
-
-                Thread.Sleep(_pollInterval);
+                return CreateTransportFailureResult(request.id, runtimeAction, targetInfo, sendResult.Error);
             }
 
-            var commandFile = Path.Combine(targetInfo.commandsPath, $"{request.id}.json");
-            try { if (File.Exists(commandFile)) File.Delete(commandFile); } catch { }
+            var commandTrace = new RuntimeCommandTrace
+            {
+                CommandId = request.id,
+                Action = runtimeAction,
+                CommandPath = sendResult.CommandPath,
+                ResultPath = RuntimePathHelper.GetResultPath(targetInfo, request.id),
+                SentAtUtc = sentAtUtc
+            };
+
+            var receiveResult = _transportClient.WaitResult(targetInfo, request.id, _timeout, _pollInterval);
+            if (receiveResult.Success)
+            {
+                return FinalizeRuntimeResult(receiveResult.Result, request, runtimeAction);
+            }
+
+            if (!receiveResult.TimedOut)
+            {
+                return CreateTransportFailureResult(request.id, runtimeAction, targetInfo, receiveResult.Error);
+            }
+
+            var diagnostic = _transportClient.Diagnose(_target, commandTrace);
+            _transportClient.CleanupCommand(targetInfo, request.id);
 
             return new CommandResult
             {
                 id = request.id,
                 success = false,
-                error = $"Timeout waiting for runtime result after {_timeout}ms.",
+                error = "Timeout waiting for runtime result after " + _timeout + "ms.",
                 data = new
                 {
-                    runtimeDirectory = _runtimeDirectory,
+                    transport = GetTransportName(),
+                    runtimeDirectory = _options.RuntimeDirectory,
                     target = targetInfo.targetId,
-                    action = runtimeAction
+                    action = runtimeAction,
+                    diagnostic = RuntimeDiagnosticSummary.FromReport(diagnostic)
                 }
             };
         }
@@ -88,14 +103,24 @@ namespace AIBridgeCLI.Core
                 return ListTargets(request?.id);
             }
 
-            var targetInfo = RuntimePathHelper.ResolveTarget(_runtimeDirectory, _target);
+            if (string.Equals(runtimeAction, "runtime.diagnose", StringComparison.OrdinalIgnoreCase))
+            {
+                return Diagnose(request?.id);
+            }
+
+            var targetInfo = _transportClient.ResolveTarget(_target);
             if (targetInfo == null)
             {
                 return CreateTargetNotFoundResult(request?.id);
             }
 
             EnsureRequestId(request);
-            WriteCommandFile(targetInfo, request);
+            var sendResult = _transportClient.Send(targetInfo, request);
+            if (!sendResult.Success)
+            {
+                return CreateTransportFailureResult(request.id, runtimeAction, targetInfo, sendResult.Error);
+            }
+
             return new CommandResult
             {
                 id = request.id,
@@ -104,6 +129,7 @@ namespace AIBridgeCLI.Core
                 {
                     id = request.id,
                     status = "sent",
+                    transport = GetTransportName(),
                     target = targetInfo.targetId,
                     action = runtimeAction
                 }
@@ -112,22 +138,36 @@ namespace AIBridgeCLI.Core
 
         public CommandResult ListTargets(string requestId = null)
         {
-            var targets = RuntimePathHelper.ListTargets(_runtimeDirectory);
+            var targets = _transportClient.ListTargets();
             return new CommandResult
             {
                 id = requestId,
                 success = true,
                 data = new
                 {
-                    runtimeDirectory = _runtimeDirectory,
+                    transport = GetTransportName(),
+                    runtimeDirectory = _options.RuntimeDirectory,
                     count = targets.Count,
                     targets = targets
                 }
             };
         }
 
+        public CommandResult Diagnose(string requestId = null)
+        {
+            var report = _transportClient.Diagnose(_target);
+            return new CommandResult
+            {
+                id = requestId,
+                success = report.success,
+                error = report.success ? null : report.summary,
+                data = report
+            };
+        }
+
         private CommandResult CreateTargetNotFoundResult(string requestId)
         {
+            var diagnostic = _transportClient.Diagnose(_target);
             return new CommandResult
             {
                 id = requestId,
@@ -135,9 +175,28 @@ namespace AIBridgeCLI.Core
                 error = "Runtime target was not found. Start a Player with AIBridgeRuntime or pass --runtime-dir/--target.",
                 data = new
                 {
-                    runtimeDirectory = _runtimeDirectory,
+                    transport = GetTransportName(),
+                    runtimeDirectory = _options.RuntimeDirectory,
                     target = _target,
-                    targets = RuntimePathHelper.ListTargets(_runtimeDirectory)
+                    targets = _transportClient.ListTargets(),
+                    diagnostic = RuntimeDiagnosticSummary.FromReport(diagnostic)
+                }
+            };
+        }
+
+        private CommandResult CreateTransportFailureResult(string requestId, string runtimeAction, RuntimeTargetInfo targetInfo, string error)
+        {
+            return new CommandResult
+            {
+                id = requestId,
+                success = false,
+                error = error,
+                data = new
+                {
+                    transport = GetTransportName(),
+                    runtimeDirectory = _options.RuntimeDirectory,
+                    target = targetInfo == null ? _target : targetInfo.targetId,
+                    action = runtimeAction
                 }
             };
         }
@@ -155,77 +214,156 @@ namespace AIBridgeCLI.Core
             }
         }
 
-        private static void WriteCommandFile(RuntimeTargetInfo targetInfo, CommandRequest request)
+        private string GetTransportName()
         {
-            Directory.CreateDirectory(targetInfo.commandsPath);
-            Directory.CreateDirectory(targetInfo.resultsPath);
-
-            var commandFile = Path.Combine(targetInfo.commandsPath, $"{request.id}.json");
-            var tempFile = commandFile + ".tmp";
-            var json = JsonConvert.SerializeObject(request, Formatting.None, new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Ignore
-            });
-
-            // 先写临时文件再改名，避免 Player 读到半截命令。
-            File.WriteAllText(tempFile, json, new UTF8Encoding(false));
-            if (File.Exists(commandFile))
-            {
-                File.Delete(commandFile);
-            }
-
-            File.Move(tempFile, commandFile);
+            return _options.Kind.ToString().ToLowerInvariant();
         }
 
-        private static CommandResult ParseRuntimeResult(string requestId, string resultJson)
+        private static CommandResult FinalizeRuntimeResult(CommandResult result, CommandRequest request, string runtimeAction)
         {
+            if (result == null
+                || !result.success
+                || !string.Equals(runtimeAction, "runtime.screenshot", StringComparison.OrdinalIgnoreCase))
+            {
+                return result;
+            }
+
+            TryAttachScreenshotOutput(result, request);
+            return result;
+        }
+
+        private static void TryAttachScreenshotOutput(CommandResult result, CommandRequest request)
+        {
+            var data = result.data as JObject;
+            if (data == null)
+            {
+                return;
+            }
+
+            var imagePath = ReadString(data, "imagePath");
+            if (string.IsNullOrEmpty(imagePath))
+            {
+                return;
+            }
+
+            if (!TryGetRequestParam(request, "output", out var outputPath) || string.IsNullOrWhiteSpace(outputPath))
+            {
+                if (File.Exists(imagePath))
+                {
+                    data["pcPath"] = Path.GetFullPath(imagePath);
+                }
+
+                return;
+            }
+
             try
             {
-                var token = JObject.Parse(resultJson);
-                return new CommandResult
+                if (!File.Exists(imagePath))
                 {
-                    id = ReadString(token, "id") ?? ReadString(token, "CommandId") ?? requestId,
-                    success = ReadBool(token, "success") ?? ReadBool(token, "Success") ?? false,
-                    error = ReadString(token, "error") ?? ReadString(token, "Error"),
-                    data = token["data"] ?? token["Data"],
-                    executionTime = ReadLong(token, "executionTime") ?? ReadLong(token, "ExecutionTime")
-                };
+                    result.success = false;
+                    result.error = "artifact_pull_failed: Screenshot file was not found: " + imagePath;
+                    return;
+                }
+
+                var fullOutputPath = Path.GetFullPath(outputPath);
+                var directory = Path.GetDirectoryName(fullOutputPath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                File.Copy(imagePath, fullOutputPath, true);
+                data["pcPath"] = fullOutputPath;
+                data["output"] = fullOutputPath;
+                data["copiedToOutput"] = true;
+                data["sha256"] = ComputeSha256(fullOutputPath);
             }
             catch (Exception ex)
             {
-                return new CommandResult
+                result.success = false;
+                result.error = "artifact_pull_failed: " + ex.Message;
+            }
+        }
+
+        private static bool TryGetRequestParam(CommandRequest request, string key, out string value)
+        {
+            value = null;
+            if (request == null || request.@params == null)
+            {
+                return false;
+            }
+
+            foreach (var pair in request.@params)
+            {
+                if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
                 {
-                    id = requestId,
-                    success = false,
-                    error = $"Failed to parse runtime result: {ex.Message}",
-                    data = resultJson
-                };
+                    value = Convert.ToString(pair.Value, CultureInfo.InvariantCulture);
+                    return true;
+                }
             }
+
+            return false;
         }
 
-        private static string ReadString(JObject token, string name)
+        private static string ReadString(JObject data, string key)
         {
-            return token.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var value) ? value.Value<string>() : null;
+            return data.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out var token) ? token.Value<string>() : null;
         }
 
-        private static bool? ReadBool(JObject token, string name)
+        private static string ComputeSha256(string path)
         {
-            if (!token.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var value))
+            using (var stream = File.OpenRead(path))
+            using (var sha256 = SHA256.Create())
             {
-                return null;
-            }
+                var hash = sha256.ComputeHash(stream);
+                var builder = new System.Text.StringBuilder(hash.Length * 2);
+                for (var i = 0; i < hash.Length; i++)
+                {
+                    builder.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                }
 
-            return value.Type == JTokenType.Boolean ? value.Value<bool>() : (bool?)null;
+                return builder.ToString();
+            }
         }
+    }
 
-        private static long? ReadLong(JObject token, string name)
+    internal sealed class RuntimeDiagnosticSummary
+    {
+        public bool success { get; set; }
+        public string summary { get; set; }
+        public string transport { get; set; }
+        public string targetId { get; set; }
+        public object[] failedChecks { get; set; }
+        public string[] suggestions { get; set; }
+
+        public static RuntimeDiagnosticSummary FromReport(RuntimeDiagnosticReport report)
         {
-            if (!token.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var value))
+            var failed = new System.Collections.Generic.List<object>();
+            if (report != null && report.checks != null)
             {
-                return null;
+                foreach (var check in report.checks)
+                {
+                    if (string.Equals(check.status, "failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        failed.Add(new
+                        {
+                            name = check.name,
+                            detail = check.detail,
+                            fix = check.fix
+                        });
+                    }
+                }
             }
 
-            return value.Type == JTokenType.Integer ? value.Value<long>() : (long?)null;
+            return new RuntimeDiagnosticSummary
+            {
+                success = report != null && report.success,
+                summary = report == null ? null : report.summary,
+                transport = report == null ? null : report.transport,
+                targetId = report == null ? null : report.targetId,
+                failedChecks = failed.ToArray(),
+                suggestions = report == null || report.suggestions == null ? null : report.suggestions.ToArray()
+            };
         }
     }
 }

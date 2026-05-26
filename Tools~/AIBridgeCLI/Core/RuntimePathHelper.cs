@@ -14,6 +14,7 @@ namespace AIBridgeCLI.Core
         public string heartbeatPath { get; set; }
         public string commandsPath { get; set; }
         public string resultsPath { get; set; }
+        public string screenshotsPath { get; set; }
         public bool stale { get; set; }
         public double? ageSeconds { get; set; }
         public string lastHeartbeatUtc { get; set; }
@@ -26,6 +27,7 @@ namespace AIBridgeCLI.Core
         public const string TargetsDirectoryName = "targets";
         public const string CommandsDirectoryName = "commands";
         public const string ResultsDirectoryName = "results";
+        public const string ScreenshotsDirectoryName = "screenshots";
         public const string HeartbeatFileName = "heartbeat.json";
         public const string RuntimeDirEnvironment = "AIBRIDGE_RUNTIME_DIR";
         private static readonly TimeSpan StaleHeartbeatTimeout = TimeSpan.FromSeconds(15);
@@ -75,8 +77,9 @@ namespace AIBridgeCLI.Core
                     targetId = targetId,
                     path = targetPath,
                     heartbeatPath = heartbeatPath,
-                    commandsPath = Path.Combine(targetPath, CommandsDirectoryName),
-                    resultsPath = Path.Combine(targetPath, ResultsDirectoryName),
+                    commandsPath = GetHeartbeatPathOrDefault(heartbeat, "commandsPath", targetPath, CommandsDirectoryName),
+                    resultsPath = GetHeartbeatPathOrDefault(heartbeat, "resultsPath", targetPath, ResultsDirectoryName),
+                    screenshotsPath = GetHeartbeatPathOrDefault(heartbeat, "screenshotsPath", targetPath, ScreenshotsDirectoryName),
                     stale = !lastHeartbeat.HasValue || DateTime.UtcNow - lastHeartbeat.Value > StaleHeartbeatTimeout,
                     ageSeconds = ageSeconds,
                     lastHeartbeatUtc = lastHeartbeat.HasValue ? lastHeartbeat.Value.ToString("o") : null,
@@ -115,6 +118,22 @@ namespace AIBridgeCLI.Core
             }
 
             return request.@params.TryGetValue("action", out var actionValue) ? actionValue?.ToString() : null;
+        }
+
+        public static string GetCommandPath(RuntimeTargetInfo targetInfo, string commandId)
+        {
+            return Path.Combine(targetInfo.commandsPath, commandId + ".json");
+        }
+
+        public static string GetResultPath(RuntimeTargetInfo targetInfo, string commandId)
+        {
+            return Path.Combine(targetInfo.resultsPath, commandId + ".json");
+        }
+
+        private static string GetHeartbeatPathOrDefault(JObject heartbeat, string heartbeatKey, string targetPath, string directoryName)
+        {
+            var value = heartbeat?[heartbeatKey]?.Value<string>();
+            return string.IsNullOrWhiteSpace(value) ? Path.Combine(targetPath, directoryName) : value;
         }
 
         private static JObject ReadHeartbeat(string heartbeatPath)

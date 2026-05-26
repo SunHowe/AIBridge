@@ -16,8 +16,10 @@ namespace AIBridgeCLI.Commands
             "ping",
             "status",
             "logs",
+            "perf",
             "screenshot",
             "handlers",
+            "diagnose",
             "call"
         };
 
@@ -26,26 +28,54 @@ namespace AIBridgeCLI.Commands
             ["list_targets"] = CommonTargetParameters(),
             ["ping"] = CommonTargetParameters(),
             ["status"] = CommonTargetParameters(),
-            ["logs"] = new List<ParameterInfo>
+            ["logs"] = WithAdbParameters(new List<ParameterInfo>
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: file, adb, http", false, "file"),
                 new ParameterInfo("count", "Maximum number of log entries", false, "50"),
+                new ParameterInfo("tail", "Alias for count", false),
                 new ParameterInfo("logType", "Filter by type: all, Log, Warning, Error, Exception, Assert", false, "all"),
                 new ParameterInfo("regex", "Filter by message regex", false),
                 new ParameterInfo("includeStackTrace", "Include stack traces", false, "false"),
+                new ParameterInfo("sinceFrame", "Only return logs at or after this frame", false),
+                new ParameterInfo("sinceTime", "Only return logs at or after this UTC time or Unix timestamp", false),
+                new ParameterInfo("clear", "Clear runtime log buffer", false, "false"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
-            },
-            ["screenshot"] = CommonTargetParameters(),
+            }),
+            ["perf"] = WithAdbParameters(new List<ParameterInfo>
+            {
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: file, adb, http", false, "file"),
+                new ParameterInfo("duration", "Sampling duration, e.g. 5s or 5000ms", false, "5s"),
+                new ParameterInfo("interval", "Sampling interval, e.g. 100ms", false, "100ms"),
+                new ParameterInfo("hitchThresholdMs", "Frame time threshold counted as a hitch", false, "50"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            }),
+            ["screenshot"] = WithAdbParameters(new List<ParameterInfo>
+            {
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: file, adb, http", false, "file"),
+                new ParameterInfo("output", "Optional PC output path for the screenshot", false),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            }),
             ["handlers"] = CommonTargetParameters(),
-            ["call"] = new List<ParameterInfo>
+            ["diagnose"] = CommonTargetParameters(),
+            ["call"] = WithAdbParameters(new List<ParameterInfo>
             {
                 new ParameterInfo("action", "Registered runtime business action", true),
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: file, adb, http", false, "file"),
                 new ParameterInfo("json", "JSON parameters passed to the runtime handler", false),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
-            }
+            })
         };
 
         public override CommandRequest Build(string action, Dictionary<string, string> options)
@@ -78,12 +108,19 @@ namespace AIBridgeCLI.Commands
                     request.@params["action"] = "runtime.logs";
                     CopyOptions(request, options, includeJson: false, excludeActionOption: false);
                     break;
+                case "perf":
+                    request.@params["action"] = "runtime.perf";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
                 case "screenshot":
                     request.@params["action"] = "runtime.screenshot";
                     CopyOptions(request, options, includeJson: false, excludeActionOption: false);
                     break;
                 case "handlers":
                     request.@params["action"] = "runtime.handlers";
+                    break;
+                case "diagnose":
+                    request.@params["action"] = "runtime.diagnose";
                     break;
                 case "call":
                     BuildCallRequest(request, options);
@@ -173,6 +210,12 @@ namespace AIBridgeCLI.Commands
                 || string.Equals(key, "on-dialog", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "target", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "runtime-dir", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "transport", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "device", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "package", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "adb", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "device-path", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "url", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "token", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -208,12 +251,23 @@ namespace AIBridgeCLI.Commands
 
         private static List<ParameterInfo> CommonTargetParameters()
         {
-            return new List<ParameterInfo>
+            return WithAdbParameters(new List<ParameterInfo>
             {
                 new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
                 new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: file, adb, http", false, "file"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
-            };
+            });
+        }
+
+        private static List<ParameterInfo> WithAdbParameters(List<ParameterInfo> parameters)
+        {
+            parameters.Add(new ParameterInfo("device", "ADB device serial; required when multiple devices are connected", false));
+            parameters.Add(new ParameterInfo("package", "Android package name used to resolve app-specific files", false));
+            parameters.Add(new ParameterInfo("adb", "Optional adb executable path", false));
+            parameters.Add(new ParameterInfo("device-path", "Override Android runtime root path on device", false));
+            return parameters;
         }
     }
 }

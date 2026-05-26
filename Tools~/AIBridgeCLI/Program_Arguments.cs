@@ -68,6 +68,13 @@ namespace AIBridgeCLI
                     }
                     else
                     {
+                        if (IsRuntimeLogsClearShortcut(result, arg))
+                        {
+                            result.Options["clear"] = "true";
+                            i++;
+                            continue;
+                        }
+
                         // For multi command, collect extra args
                         if (result.CommandType.Equals("multi", StringComparison.OrdinalIgnoreCase))
                         {
@@ -83,6 +90,16 @@ namespace AIBridgeCLI
             }
 
             return result;
+        }
+
+        private static bool IsRuntimeLogsClearShortcut(ParsedArgs result, string arg)
+        {
+            return result != null
+                && result.CommandType != null
+                && result.Action != null
+                && result.CommandType.Equals("runtime", StringComparison.OrdinalIgnoreCase)
+                && result.Action.Equals("logs", StringComparison.OrdinalIgnoreCase)
+                && arg.Equals("clear", StringComparison.OrdinalIgnoreCase);
         }
 
         class ParsedArgs
