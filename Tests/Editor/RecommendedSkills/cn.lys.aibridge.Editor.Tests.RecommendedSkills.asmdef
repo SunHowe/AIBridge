@@ -1,10 +1,9 @@
 {
-    "name": "cn.lys.aibridge.Editor.Tests",
+    "name": "cn.lys.aibridge.Editor.Tests.RecommendedSkills",
     "rootNamespace": "AIBridge.Editor.Tests",
     "references": [
         "cn.lys.aibridge.Editor",
-        "cn.lys.aibridge.Runtime",
-        "UnityEngine.UI"
+        "cn.lys.aibridge.Runtime"
     ],
     "includePlatforms": [
         "Editor"
