@@ -16,7 +16,8 @@ namespace AIBridgeCLI.Core
         public const int DefaultDiscoveryPort = 27183;
         public const int DefaultDiscoveryTimeoutMs = 1500;
         public const int DefaultCacheSeconds = 30;
-        private const int DefaultHttpPort = 27182;
+        public const int DefaultHttpPort = 27182;
+        public const int DefaultPortScanCount = 50;
         private const string DiscoveryProtocol = "aibridge-runtime-discovery";
         private const string DiscoveryCacheFileName = "discovery-cache.json";
 
@@ -37,7 +38,13 @@ namespace AIBridgeCLI.Core
             {
                 udp.EnableBroadcast = true;
                 udp.Client.ReceiveTimeout = Math.Max(100, timeoutMs);
-                udp.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, udpPort <= 0 ? DefaultDiscoveryPort : udpPort));
+                var startPort = udpPort <= 0 ? DefaultDiscoveryPort : udpPort;
+                var endPort = Math.Min(65535, startPort + DefaultPortScanCount - 1);
+                // Runtime 会在端口被占用时递增，默认 discovery 需要覆盖同机多实例的连续端口。
+                for (var port = startPort; port <= endPort; port++)
+                {
+                    udp.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, port));
+                }
 
                 var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(100, timeoutMs));
                 while (DateTime.UtcNow < deadline)

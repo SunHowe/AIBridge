@@ -23,6 +23,7 @@ namespace AIBridgeCLI.Core
         public int PollIntervalMs { get; private set; }
         public string HttpUrl { get; private set; }
         public string Token { get; private set; }
+        public bool HttpUrlExplicit { get; private set; }
 
         private RuntimeTransportOptions()
         {
@@ -40,6 +41,7 @@ namespace AIBridgeCLI.Core
             var resolvedTransport = ResolveTransportName(transport, config);
             var resolvedTarget = string.IsNullOrWhiteSpace(target) ? (string.IsNullOrWhiteSpace(config.target) ? DefaultTarget : config.target) : target;
             var runtimeDirectory = RuntimePathHelper.ResolveRuntimeDirectory(runtimeDirectoryOverride);
+            var httpUrlExplicit = HasExplicitHttpUrl(commandLineOptions);
             var httpUrl = ResolveHttpUrl(commandLineOptions, config, resolvedTarget, runtimeDirectory);
             return new RuntimeTransportOptions
             {
@@ -49,8 +51,19 @@ namespace AIBridgeCLI.Core
                 TimeoutMs = timeoutMs,
                 PollIntervalMs = pollIntervalMs,
                 HttpUrl = NormalizeHttpUrl(httpUrl),
+                HttpUrlExplicit = httpUrlExplicit,
                 Token = ResolveOption(commandLineOptions, "token", TokenEnvironment, config.token)
             };
+        }
+
+        private static bool HasExplicitHttpUrl(System.Collections.Generic.Dictionary<string, string> options)
+        {
+            if (options.TryGetValue("url", out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(HttpUrlEnvironment));
         }
 
         private static string ResolveTransportName(string transport, RuntimeConfig config)

@@ -30,7 +30,7 @@ namespace AIBridgeCLI.Commands
             ["discover"] = new List<ParameterInfo>
             {
                 new ParameterInfo("timeout", "LAN discovery timeout in milliseconds", false, "1500"),
-                new ParameterInfo("udpPort", "UDP discovery port", false, "27183"),
+                new ParameterInfo("udpPort", "First UDP discovery port to scan", false, "27183"),
                 new ParameterInfo("projectHint", "Optional project name hint", false)
             },
             ["ping"] = CommonTargetParameters(),

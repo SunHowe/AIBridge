@@ -13,6 +13,8 @@ namespace AIBridge.Runtime.Transports
     internal sealed class LanRuntimeDiscoveryServer : IDisposable
     {
         private const int DefaultDiscoveryPort = 27183;
+        private const int MaxPort = 65535;
+        private const int PortRetryCount = 50;
         private const string DiscoveryProtocol = "aibridge-runtime-discovery";
 
         private readonly AIBridgeRuntime _runtime;
@@ -38,6 +40,7 @@ namespace AIBridge.Runtime.Transports
         }
 
         public bool IsRunning => _running;
+        public int Port { get; private set; }
 
         public void Start()
         {
@@ -46,11 +49,8 @@ namespace AIBridge.Runtime.Transports
                 return;
             }
 
-            var port = ResolveDiscoveryPort();
-            _udpClient = new UdpClient(port)
-            {
-                EnableBroadcast = true
-            };
+            var requestedPort = ResolveDiscoveryPort();
+            BindUdpClient(requestedPort);
             _running = true;
 
             _listenThread = new Thread(ListenLoop)
@@ -59,7 +59,68 @@ namespace AIBridge.Runtime.Transports
                 Name = "AIBridgeRuntimeLanDiscovery"
             };
             _listenThread.Start();
-            Debug.Log("[AIBridgeRuntime] LAN discovery listening: udp://0.0.0.0:" + port.ToString(CultureInfo.InvariantCulture));
+            Debug.Log("[AIBridgeRuntime] LAN discovery listening: udp://0.0.0.0:" + Port.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private void BindUdpClient(int requestedPort)
+        {
+            requestedPort = Math.Max(1, Math.Min(MaxPort, requestedPort));
+            Exception lastError = null;
+            var maxCandidate = Math.Min(MaxPort, requestedPort + PortRetryCount - 1);
+            // 多个 Editor/Player 同机运行时，UDP discovery 也需要和 HTTP 一样自动避让端口占用。
+            for (var port = requestedPort; port <= maxCandidate; port++)
+            {
+                UdpClient client = null;
+                try
+                {
+                    client = new UdpClient(port)
+                    {
+                        EnableBroadcast = true
+                    };
+                    _udpClient = client;
+                    Port = port;
+                    if (port != requestedPort)
+                    {
+                        Debug.LogWarning("[AIBridgeRuntime] LAN discovery UDP port "
+                            + requestedPort.ToString(CultureInfo.InvariantCulture)
+                            + " is unavailable; using "
+                            + port.ToString(CultureInfo.InvariantCulture)
+                            + ".");
+                    }
+
+                    return;
+                }
+                catch (SocketException ex)
+                {
+                    lastError = ex;
+                    if (client != null)
+                    {
+                        try { client.Close(); } catch { }
+                    }
+
+                    if (!IsAddressAlreadyInUse(ex))
+                    {
+                        throw;
+                    }
+                }
+                catch
+                {
+                    if (client != null)
+                    {
+                        try { client.Close(); } catch { }
+                    }
+
+                    throw;
+                }
+            }
+
+            throw new InvalidOperationException(
+                "No available AIBridge Runtime LAN discovery UDP port from "
+                + requestedPort.ToString(CultureInfo.InvariantCulture)
+                + " to "
+                + maxCandidate.ToString(CultureInfo.InvariantCulture)
+                + ".",
+                lastError);
         }
 
         public void Dispose()
@@ -230,6 +291,13 @@ namespace AIBridge.Runtime.Transports
         {
             var port = _settings == null ? 0 : _settings.discoveryUdpPort;
             return port <= 0 ? DefaultDiscoveryPort : port;
+        }
+
+        private static bool IsAddressAlreadyInUse(SocketException ex)
+        {
+            return ex != null
+                && (ex.SocketErrorCode == SocketError.AddressAlreadyInUse
+                    || ex.ErrorCode == 10048);
         }
 
         private static string ReadString(Dictionary<string, object> data, string key)

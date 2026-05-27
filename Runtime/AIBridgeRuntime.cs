@@ -559,7 +559,7 @@ namespace AIBridge.Runtime
                 httpUrl = BuildLocalHttpUrl(),
                 httpPort = GetActualHttpPort(),
                 httpBindAddress = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
-                lanDiscoveryUdpPort = runtimeSettings == null ? 0 : runtimeSettings.discoveryUdpPort,
+                lanDiscoveryUdpPort = GetActualLanDiscoveryPort(),
                 runtimeVersion = RuntimeVersion,
                 productName = Application.productName,
                 applicationVersion = Application.version,
@@ -975,7 +975,7 @@ namespace AIBridge.Runtime
                 ["httpUrl"] = BuildLocalHttpUrl(),
                 ["httpPort"] = GetActualHttpPort(),
                 ["httpBindAddress"] = runtimeSettings == null ? null : runtimeSettings.httpBindAddress,
-                ["lanDiscoveryUdpPort"] = runtimeSettings == null ? 0 : runtimeSettings.discoveryUdpPort,
+                ["lanDiscoveryUdpPort"] = GetActualLanDiscoveryPort(),
                 ["runtimeVersion"] = RuntimeVersion,
                 ["productName"] = Application.productName,
                 ["applicationVersion"] = Application.version,
@@ -1338,6 +1338,16 @@ namespace AIBridge.Runtime
             }
 
             return runtimeSettings == null ? 0 : runtimeSettings.httpPort;
+        }
+
+        internal int GetActualLanDiscoveryPort()
+        {
+            if (_lanDiscoveryServer != null && _lanDiscoveryServer.IsRunning)
+            {
+                return _lanDiscoveryServer.Port;
+            }
+
+            return runtimeSettings == null ? 0 : runtimeSettings.discoveryUdpPort;
         }
 
         private void StartHttpTransportIfNeeded()
