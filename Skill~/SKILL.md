@@ -1,6 +1,6 @@
 ---
 name: aibridge
-description: Unity Editor and Player Runtime CLI integration for AIBridge. Use when Codex needs to compile Unity, inspect Console logs, search/read assets, manipulate GameObjects, Transforms, components, SerializedProperty values, scenes, screenshots/GIFs, connect to built Player runtime targets, simulate Play Mode runtime input, editor focus/menu items/game view, or look up AIBridgeCLI command syntax. For batch/multi scripts use aibridge-batch-script. For complex prefab asset edits use aibridge-prefab-patch. For unsupported direct Unity YAML serialized asset edits use unity-yaml-editing.
+description: Unity Editor and Player Runtime CLI integration for AIBridge. Use when Codex needs to compile Unity, inspect Console logs, search/read assets, run read-only code_index symbol/definition/reference queries, manipulate GameObjects, Transforms, components, SerializedProperty values, scenes, screenshots/GIFs, connect to built Player runtime targets, simulate Play Mode runtime input, editor focus/menu items/game view, or look up AIBridgeCLI command syntax. For batch/multi scripts use aibridge-batch-script. For complex prefab asset edits use aibridge-prefab-patch. For unsupported direct Unity YAML serialized asset edits use unity-yaml-editing.
 ---
 
 # AI Bridge Unity Skill
@@ -29,7 +29,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - `--json <json>` / `--stdin` - Complex parameters
 - `--help` - Show help
 
-**Cache Directory:** `.aibridge/` (Editor commands/results/screenshots, Runtime targets under `.aibridge/runtime/targets/`)
+**Cache Directory:** `.aibridge/` (Editor commands/results/screenshots, Runtime targets under `.aibridge/runtime/targets/`, CodeIndex state under `.aibridge/code-index/`)
 
 **Dialog Output Rule:** `dialog status` omits `blockedByDialog` and `dialogs` when no blocking Unity modal dialog is detected. Missing fields mean no dialog.
 
@@ -46,6 +46,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - `focus` is Windows CLI-only. `dialog` is CLI-only, uses Windows window APIs or macOS Accessibility permission, and omits dialog fields when no modal dialog is detected. `screenshot game` and `screenshot gif` require Play Mode; `screenshot scene_view` works in Edit mode when a Scene view is open.
 - `input` requires Play Mode and an active EventSystem; use it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
 - `runtime` is CLI-only and talks to `AIBridgeRuntime` inside a Player or Play Mode target. Use `runtime list_targets` first, then target `latest` or a specific target id.
+- `code_index` is CLI-only and read-only. It starts a project-local Roslyn daemon for symbols, definitions, and references. If semantic indexing is unavailable, trust only results marked `semantic=true`; fallback results are explicitly marked `semantic=false`.
 
 ## Related Resources
 
@@ -117,6 +118,20 @@ $CLI runtime call --target latest --action qa.open_panel --json "{\"panel\":\"In
 For multiple local Players, run `$CLI runtime list_targets` first and pass a specific target id such as `$CLI runtime status --target AIBridgeDev_12345`. `$CLI runtime diagnose --target <id>` diagnoses that target's resolved HTTP URL.
 
 For remote phones, run `$CLI runtime discover` on the LAN first, then target the discovered id or URL. On Android USB, run `adb reverse tcp:27182 tcp:27182` first, then call `--transport http --url http://127.0.0.1:27182`; `adb` is not a runtime transport mode.
+
+### `code_index` - Read-only Semantic Code Index
+
+CLI-only. Does not require an IDE to be open. Use for symbol lookup and source navigation before broad edits; it does not rename, refactor, or write files.
+
+```bash
+$CLI code_index doctor
+$CLI code_index warmup
+$CLI code_index symbol --query PlayerController
+$CLI code_index definition --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index references --file Assets/Scripts/Foo.cs --line 42 --column 17
+```
+
+Results include `semantic`, `source`, `state`, `stale`, `projectRoot`, and `solution`. Treat `semantic=false` as fallback text candidates only.
 
 ---
 

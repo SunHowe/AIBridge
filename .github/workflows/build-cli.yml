@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'Tools~/AIBridgeCLI/**'
+      - 'Tools~/AIBridgeCodeIndex/**'
       - '.github/workflows/build-cli.yml'
   pull_request:
     branches: [main]
     paths:
       - 'Tools~/AIBridgeCLI/**'
+      - 'Tools~/AIBridgeCodeIndex/**'
   workflow_dispatch:
 
 jobs:
@@ -48,6 +50,12 @@ jobs:
             --self-contained false \
             -p:PublishSingleFile=true \
             -o Tools~/CLI/${{ matrix.rid }}
+          dotnet publish Tools~/AIBridgeCodeIndex/AIBridgeCodeIndex.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained false \
+            -p:PublishSingleFile=false \
+            -o Tools~/CLI/${{ matrix.rid }}/CodeIndex
         shell: bash
 
       - name: Upload artifact

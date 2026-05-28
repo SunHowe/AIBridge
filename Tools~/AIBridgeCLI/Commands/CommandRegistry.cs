@@ -39,6 +39,7 @@ namespace AIBridgeCLI.Commands
             Register(new InputCommandBuilder());
             Register(new CodeCommandBuilder());
             Register(new RuntimeCommandBuilder());
+            Register(new CodeIndexCommandBuilder());
 
             _initialized = true;
         }

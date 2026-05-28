@@ -30,6 +30,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 | AI integration | CLI plus JSON output | Protocol-specific tools |
 | Traceability | Command files, results, logs, screenshots | Session state |
 | Extensibility | Unity commands plus CLI builders | Tool server extensions |
+| Read-only code index | IDE-independent `code_index` daemon for symbols, definitions, and references | Usually tied to an IDE/plugin session |
 | Mobile Player debugging | LAN/USB HTTP Runtime Bridge supports status, logs, screenshots, perf, handlers, and HybridCLR-gated `code runtime_execute` | Usually needs custom per-tool runtime server support |
 
 ## Core Capabilities
@@ -38,6 +39,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
 - **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
 - **Player Runtime Bridge**: an `AIBridgeRuntime` component inside a built Player can expose runtime status, logs, screenshots, performance samples, project allowlisted handlers, and HybridCLR-gated runtime code execution for Development Build and mobile debugging.
+- **Read-only Code Index**: `code_index` starts an IDE-independent Roslyn/MSBuild daemon for symbol, definition, and reference queries. It reports `semantic=false` when it falls back to text search.
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
 - **Visual and log validation**: capture Game/Scene view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
 
@@ -46,6 +48,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - Unity 2019.4 or later.
 - .NET 8.0 Runtime for the bundled CLI.
 - Unity Editor must be running for Unity-side commands such as `compile unity`, `asset`, `scene`, `inspector`, `prefab`, `input`, `screenshot`, `code`, and `get_logs`.
+- `code_index` requires Unity-generated `.sln/.csproj` files for semantic results. If Roslyn cannot load them, results are marked `semantic=false` and use text-search fallback where possible.
 - `runtime` commands require an `AIBridgeRuntime` component in the Player or Play Mode scene; Editor Play Mode can auto inject one when Runtime Bridge is enabled. `code runtime_execute` also requires the HybridCLR package and Runtime Code Execution to be enabled. Runtime Bridge is disabled by default in Release Builds unless the project explicitly enables it.
 
 ## Installation
@@ -282,6 +285,25 @@ Runtime Bridge does not include an in-game LLM and does not expose an unrestrict
 </details>
 
 <details>
+<summary>Read-only Code Index</summary>
+
+`code_index` is a CLI-only, read-only semantic query surface. It does not require Rider, VS Code, Cursor, or any IDE window to be open. The CLI starts a project-local `AIBridgeCodeIndex` daemon, the daemon loads the Unity-generated solution with Roslyn/MSBuildWorkspace, and queries return structured JSON.
+
+```bash
+$CLI code_index status
+$CLI code_index doctor
+$CLI code_index warmup
+$CLI code_index reset
+$CLI code_index symbol --query PlayerController
+$CLI code_index definition --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index references --file Assets/Scripts/Foo.cs --line 42 --column 17
+```
+
+The command is intentionally read-only: it does not rename, refactor, auto-fix, or write files. When the semantic workspace is unavailable, fallback results are explicitly marked with `semantic=false` and `source=rg-fallback` or `source=text-fallback`. `doctor` reports missing or stale `.sln/.csproj` state directly; `compile unity` remains the final validation authority.
+
+</details>
+
+<details>
 <summary>Advanced C# Execution</summary>
 
 ### Roslyn Temporary C# Execution
@@ -311,14 +333,15 @@ $CLI code cancel
 4. Run `compile unity`.
 5. Read `get_logs --logType Error`.
 6. For runtime UI, enter Play Mode and verify interaction with `input`, logs, and screenshots or GIFs.
-7. Use `code execute` or HybridCLR-backed `code runtime_execute` only when declarative commands cannot express a complex one-off Editor or Player debugging task.
+7. Use `code_index` for read-only semantic lookup before broad source edits.
+8. Use `code execute` or HybridCLR-backed `code runtime_execute` only when declarative commands cannot express a complex one-off Editor or Player debugging task.
 
 ## Repository Layout
 
 ```text
 Editor/        Unity Editor commands, settings window, integrations, prefab patching
 Runtime/       Runtime bridge contracts and lightweight runtime data
-Tools~/       AIBridgeCLI source and bundled platform binaries
+Tools~/       AIBridgeCLI source, CodeIndex daemon source, and bundled platform binaries
 Templates~/   AI root-rule templates and Unity project AGENTS.md template
 Skill~/       AIBridge Skills and workflow references
 Tests/        Unity EditMode tests

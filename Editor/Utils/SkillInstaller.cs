@@ -18,6 +18,7 @@ namespace AIBridge.Editor
         private const string SKILL_FILE_NAME = "SKILL.md";
         private const string PACKAGE_NAME = "cn.lys.aibridge";
         private const string CLI_CACHE_FOLDER = ".aibridge/cli";
+        private const string CODE_INDEX_FOLDER = "CodeIndex";
         private static readonly string[] CLI_FILES = new[]
         {
             "AIBridgeCLI.dll",
@@ -198,6 +199,8 @@ namespace AIBridge.Editor
                 var targetTime = File.GetLastWriteTimeUtc(targetCliExe);
                 needsCopy = sourceTime > targetTime;
             }
+
+            needsCopy = needsCopy || IsCodeIndexCopyNeeded(sourceCliDir, targetCliDir);
             
             if (!needsCopy)
             {
@@ -257,11 +260,90 @@ namespace AIBridge.Editor
                     }
                 }
             }
+
+            copiedCount += CopyCodeIndexToCache(sourceCliDir, targetCliDir);
             
             if (copiedCount > 0)
             {
                 AIBridgeLogger.LogInfo($"[SkillInstaller] Copied {copiedCount} CLI files to: {targetCliDir}");
             }
+        }
+
+        private static bool IsCodeIndexCopyNeeded(string sourceCliDir, string targetCliDir)
+        {
+            var sourceDir = Path.Combine(sourceCliDir, CODE_INDEX_FOLDER);
+            if (!Directory.Exists(sourceDir))
+            {
+                return false;
+            }
+
+            var targetDir = Path.Combine(targetCliDir, CODE_INDEX_FOLDER);
+            if (!Directory.Exists(targetDir))
+            {
+                return true;
+            }
+
+            return GetNewestWriteTimeUtc(sourceDir) > GetNewestWriteTimeUtc(targetDir);
+        }
+
+        private static int CopyCodeIndexToCache(string sourceCliDir, string targetCliDir)
+        {
+            var sourceDir = Path.Combine(sourceCliDir, CODE_INDEX_FOLDER);
+            if (!Directory.Exists(sourceDir))
+            {
+                return 0;
+            }
+
+            var targetDir = Path.Combine(targetCliDir, CODE_INDEX_FOLDER);
+            try
+            {
+                if (Directory.Exists(targetDir))
+                {
+                    Directory.Delete(targetDir, true);
+                }
+
+                return CopyDirectoryContents(sourceDir, targetDir);
+            }
+            catch (Exception ex)
+            {
+                AIBridgeLogger.LogWarning($"[SkillInstaller] Failed to copy {CODE_INDEX_FOLDER}: {ex.Message}");
+                return 0;
+            }
+        }
+
+        private static int CopyDirectoryContents(string sourceDir, string targetDir)
+        {
+            Directory.CreateDirectory(targetDir);
+
+            var copied = 0;
+            foreach (var filePath in Directory.GetFiles(sourceDir))
+            {
+                var targetFile = Path.Combine(targetDir, Path.GetFileName(filePath));
+                File.Copy(filePath, targetFile, true);
+                copied++;
+            }
+
+            foreach (var childDir in Directory.GetDirectories(sourceDir))
+            {
+                copied += CopyDirectoryContents(childDir, Path.Combine(targetDir, Path.GetFileName(childDir)));
+            }
+
+            return copied;
+        }
+
+        private static DateTime GetNewestWriteTimeUtc(string directory)
+        {
+            var newest = Directory.GetLastWriteTimeUtc(directory);
+            foreach (var filePath in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                var writeTime = File.GetLastWriteTimeUtc(filePath);
+                if (writeTime > newest)
+                {
+                    newest = writeTime;
+                }
+            }
+
+            return newest;
         }
         
         /// <summary>

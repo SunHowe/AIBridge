@@ -105,6 +105,12 @@ namespace AIBridgeCLI
                     outputMode == OutputMode.Pretty);
             }
 
+            // Handle code_index command (CLI-only daemon management and semantic queries)
+            if (parsed.CommandType.Equals("code_index", StringComparison.OrdinalIgnoreCase))
+            {
+                return CodeIndexCommand.Execute(parsed.Action, parsed.Options, timeout, noWait, outputMode);
+            }
+
             // Handle compile dotnet command (CLI-only, no Unity communication needed)
             if (parsed.CommandType.Equals("compile", StringComparison.OrdinalIgnoreCase)
                 && parsed.Action?.Equals("dotnet", StringComparison.OrdinalIgnoreCase) == true)
