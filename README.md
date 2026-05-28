@@ -30,7 +30,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 | AI integration | CLI plus JSON output | Protocol-specific tools |
 | Traceability | Command files, results, logs, screenshots | Session state |
 | Extensibility | Unity commands plus CLI builders | Tool server extensions |
-| Read-only code index | IDE-independent `code_index` daemon for symbols, definitions, and references | Usually tied to an IDE/plugin session |
+| Read-only code index | IDE-independent `code_index` daemon for symbols, definitions, references, implementations, callers, and diagnostics | Usually tied to an IDE/plugin session |
 | Mobile Player debugging | LAN/USB HTTP Runtime Bridge supports status, logs, screenshots, perf, handlers, and HybridCLR-gated `code runtime_execute` | Usually needs custom per-tool runtime server support |
 
 ## Core Capabilities
@@ -39,7 +39,7 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 - **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
 - **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
 - **Player Runtime Bridge**: an `AIBridgeRuntime` component inside a built Player can expose runtime status, logs, screenshots, performance samples, project allowlisted handlers, and HybridCLR-gated runtime code execution for Development Build and mobile debugging.
-- **Read-only Code Index**: `code_index` starts an IDE-independent Roslyn/MSBuild daemon for symbol, definition, and reference queries. It reports `semantic=false` when it falls back to text search.
+- **Read-only Code Index**: `code_index` starts an IDE-independent Roslyn/MSBuild daemon for symbol, definition, reference, implementation, caller, and diagnostic queries. It reports `semantic=false` when it falls back to text search.
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
 - **Visual and log validation**: capture Game/Scene view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
 
@@ -297,9 +297,15 @@ $CLI code_index reset
 $CLI code_index symbol --query PlayerController
 $CLI code_index definition --file Assets/Scripts/Foo.cs --line 42 --column 17
 $CLI code_index references --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index implementations --type Game.IFoo
+$CLI code_index derived --type Game.BasePanel
+$CLI code_index callers --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index diagnostics --file Assets/Scripts/Foo.cs
 ```
 
 The command is intentionally read-only: it does not rename, refactor, auto-fix, or write files. When the semantic workspace is unavailable, fallback results are explicitly marked with `semantic=false` and `source=rg-fallback` or `source=text-fallback`. `doctor` reports missing or stale `.sln/.csproj` state directly; `compile unity` remains the final validation authority.
+
+Unity Editor can prewarm the daemon from `AIBridge > Settings > Code Index` after startup idle time. The same panel controls file-change auto refresh, text fallback, and quit cleanup. `status` reports `stale=true` when source/project inputs changed; the next semantic query refreshes the Roslyn workspace before answering when auto refresh is enabled.
 
 </details>
 

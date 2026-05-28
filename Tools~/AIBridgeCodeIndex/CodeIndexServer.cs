@@ -24,6 +24,7 @@ namespace AIBridgeCodeIndex
         private TcpListener _listener;
         private CodeIndexStatus _status;
         private Task _warmupTask;
+        private Task _unityMonitorTask;
         private bool _shutdownRequested;
 
         public CodeIndexServer(CodeIndexOptions options)
@@ -42,6 +43,10 @@ namespace AIBridgeCodeIndex
             WriteStatus();
 
             _warmupTask = WarmupAsync();
+            if (_options.UnityPid > 0)
+            {
+                _unityMonitorTask = MonitorUnityProcessAsync();
+            }
 
             while (!_shutdownRequested)
             {
@@ -71,6 +76,13 @@ namespace AIBridgeCodeIndex
             {
                 await Task.WhenAny(_warmupTask, Task.Delay(500));
             }
+
+            if (_unityMonitorTask != null)
+            {
+                await Task.WhenAny(_unityMonitorTask, Task.Delay(100));
+            }
+
+            CleanupTransientState();
         }
 
         private async Task WarmupAsync()
@@ -86,7 +98,7 @@ namespace AIBridgeCodeIndex
                     _status.solution = _workspace.SolutionPath;
                     _status.loadedProjects = _workspace.LoadedProjects;
                     _status.loadedDocuments = _workspace.LoadedDocuments;
-                    _status.stale = false;
+                    _status.stale = _workspace.IsStale();
                     _status.message = null;
                     _status.updatedAt = DateTimeOffset.Now.ToString("o");
                 }
@@ -132,6 +144,7 @@ namespace AIBridgeCodeIndex
 
                     if (request.Method == "GET" && request.Path == "/status")
                     {
+                        RefreshStaleState();
                         await WriteResponseAsync(stream, 200, CodeIndexResponse.FromStatus(GetStatusSnapshot()));
                         return;
                     }
@@ -148,12 +161,7 @@ namespace AIBridgeCodeIndex
                     {
                         UpdateStatus("stopping", null);
                         await WriteResponseAsync(stream, 200, CodeIndexResponse.FromStatus(GetStatusSnapshot()));
-                        _shutdownRequested = true;
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(100);
-                            _listener.Stop();
-                        });
+                        RequestShutdown();
                         return;
                     }
 
@@ -175,6 +183,13 @@ namespace AIBridgeCodeIndex
                 return BuildFailure(status, "Missing action.");
             }
 
+            if (!string.Equals(status.state, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildFailure(status, "Roslyn workspace is not ready. Current state: " + status.state);
+            }
+
+            await RefreshWorkspaceIfNeededAsync();
+            status = GetStatusSnapshot();
             if (!string.Equals(status.state, "ready", StringComparison.OrdinalIgnoreCase))
             {
                 return BuildFailure(status, "Roslyn workspace is not ready. Current state: " + status.state);
@@ -208,6 +223,93 @@ namespace AIBridgeCodeIndex
                 loadedDocuments = status == null ? 0 : status.loadedDocuments,
                 error = error
             };
+        }
+
+        private async Task RefreshWorkspaceIfNeededAsync()
+        {
+            if (!_options.AutoRefresh || !_workspace.IsStale())
+            {
+                RefreshStaleState();
+                return;
+            }
+
+            // 文件或工程结构变化后在查询前重载，避免返回过期语义位置。
+            UpdateStatus("loading", "Source files changed; refreshing Roslyn workspace.");
+            await WarmupAsync();
+        }
+
+        private void RefreshStaleState()
+        {
+            lock (_statusLock)
+            {
+                if (_status != null && string.Equals(_status.state, "ready", StringComparison.OrdinalIgnoreCase))
+                {
+                    _status.stale = _workspace.IsStale();
+                    _status.updatedAt = DateTimeOffset.Now.ToString("o");
+                }
+            }
+
+            WriteStatus();
+        }
+
+        private async Task MonitorUnityProcessAsync()
+        {
+            var missingTicks = 0;
+            while (!_shutdownRequested)
+            {
+                if (!IsProcessAlive(_options.UnityPid))
+                {
+                    missingTicks++;
+                    if (missingTicks >= 3)
+                    {
+                        UpdateStatus("stopping", "Unity process exited; stopping code_index daemon.");
+                        RequestShutdown();
+                        return;
+                    }
+                }
+                else
+                {
+                    missingTicks = 0;
+                }
+
+                await Task.Delay(1000);
+            }
+        }
+
+        private static bool IsProcessAlive(int processId)
+        {
+            if (processId <= 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                using (var process = Process.GetProcessById(processId))
+                {
+                    return !process.HasExited;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RequestShutdown()
+        {
+            _shutdownRequested = true;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(100);
+                try
+                {
+                    _listener.Stop();
+                }
+                catch
+                {
+                }
+            });
         }
 
         private CodeIndexStatus CreateInitialStatus(string endpoint)
@@ -287,6 +389,44 @@ namespace AIBridgeCodeIndex
             catch (Exception ex)
             {
                 Log("Failed to write status: " + ex.Message);
+            }
+        }
+
+        private void CleanupTransientState()
+        {
+            if (string.IsNullOrWhiteSpace(_options.StatusPath))
+            {
+                return;
+            }
+
+            try
+            {
+                var directory = Path.GetDirectoryName(_options.StatusPath);
+                if (string.IsNullOrEmpty(directory))
+                {
+                    return;
+                }
+
+                DeleteFileIfExists(_options.StatusPath);
+                DeleteFileIfExists(Path.Combine(directory, "lock.json"));
+
+                var tempDirectory = Path.Combine(directory, "temp");
+                if (Directory.Exists(tempDirectory))
+                {
+                    Directory.Delete(tempDirectory, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to clean transient state: " + ex.Message);
+            }
+        }
+
+        private static void DeleteFileIfExists(string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
 

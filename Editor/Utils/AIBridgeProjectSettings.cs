@@ -83,7 +83,19 @@ namespace AIBridge.Editor
             }
         }
 
-        public const int CurrentDataVersion = 14;
+        [Serializable]
+        internal sealed class CodeIndexSettingsData
+        {
+            public bool EnableCodeIndex = DefaultCodeIndexEnabled;
+            public bool PrewarmOnUnityStartup = DefaultCodeIndexPrewarmOnUnityStartup;
+            public int WarmupDelaySeconds = DefaultCodeIndexWarmupDelaySeconds;
+            public string WarmupMode = DefaultCodeIndexWarmupMode;
+            public bool AutoRefreshOnFileChange = DefaultCodeIndexAutoRefreshOnFileChange;
+            public bool FallbackToTextSearch = DefaultCodeIndexFallbackToTextSearch;
+            public string CleanupModeOnQuit = DefaultCodeIndexCleanupModeOnQuit;
+        }
+
+        public const int CurrentDataVersion = 15;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -113,6 +125,14 @@ namespace AIBridge.Editor
         public const int DefaultRuntimeBridgeHttpPort = 27182;
         public const bool DefaultRuntimeBridgeEnableLanDiscovery = true;
         public const int DefaultRuntimeBridgeDiscoveryUdpPort = 27183;
+        public const bool DefaultCodeIndexEnabled = true;
+        public const bool DefaultCodeIndexPrewarmOnUnityStartup = true;
+        public const int DefaultCodeIndexWarmupDelaySeconds = 10;
+        public const string DefaultCodeIndexWarmupMode = "light";
+        public const bool DefaultCodeIndexAutoRefreshOnFileChange = true;
+        public const bool DefaultCodeIndexFallbackToTextSearch = true;
+        public const string DefaultCodeIndexCleanupModeOnQuit = "processOnly";
+        public static readonly string[] SupportedCodeIndexCleanupModes = { "processOnly", "processAndTemp", "fullCleanup" };
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
@@ -132,6 +152,7 @@ namespace AIBridge.Editor
         [SerializeField] private bool enableCodeExecution = DefaultEnableCodeExecution;
         [SerializeField] private bool codeExecutionRiskAccepted = DefaultCodeExecutionRiskAccepted;
         [SerializeField] private RuntimeBridgeSettingsData runtimeBridge = new RuntimeBridgeSettingsData();
+        [SerializeField] private CodeIndexSettingsData codeIndex = new CodeIndexSettingsData();
 
         public static AIBridgeProjectSettings Instance
         {
@@ -375,6 +396,49 @@ namespace AIBridge.Editor
             }
         }
 
+        public CodeIndexSettingsData CodeIndex
+        {
+            get
+            {
+                if (codeIndex == null)
+                {
+                    codeIndex = new CodeIndexSettingsData();
+                }
+
+                if (codeIndex.WarmupDelaySeconds < 0)
+                {
+                    codeIndex.WarmupDelaySeconds = DefaultCodeIndexWarmupDelaySeconds;
+                }
+
+                if (string.IsNullOrWhiteSpace(codeIndex.WarmupMode))
+                {
+                    codeIndex.WarmupMode = DefaultCodeIndexWarmupMode;
+                }
+
+                codeIndex.CleanupModeOnQuit = NormalizeCodeIndexCleanupMode(codeIndex.CleanupModeOnQuit);
+                return codeIndex;
+            }
+        }
+
+        public static string NormalizeCodeIndexCleanupMode(string cleanupMode)
+        {
+            if (string.IsNullOrEmpty(cleanupMode))
+            {
+                return DefaultCodeIndexCleanupModeOnQuit;
+            }
+
+            for (var i = 0; i < SupportedCodeIndexCleanupModes.Length; i++)
+            {
+                var supportedMode = SupportedCodeIndexCleanupModes[i];
+                if (string.Equals(supportedMode, cleanupMode, StringComparison.OrdinalIgnoreCase))
+                {
+                    return supportedMode;
+                }
+            }
+
+            return DefaultCodeIndexCleanupModeOnQuit;
+        }
+
         public bool TryGetAssistantSelection(string targetId, out bool selected)
         {
             selected = false;
@@ -604,6 +668,11 @@ namespace AIBridge.Editor
                 runtimeBridge = new RuntimeBridgeSettingsData();
             }
 
+            if (codeIndex == null)
+            {
+                codeIndex = new CodeIndexSettingsData();
+            }
+
             if (dataVersion < 10)
             {
                 runtimeBridge.AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
@@ -631,6 +700,17 @@ namespace AIBridge.Editor
             if (dataVersion < 14)
             {
                 runtimeBridge.EnableRuntimeCodeExecution = DefaultRuntimeBridgeCodeExecutionEnabled;
+            }
+
+            if (dataVersion < 15)
+            {
+                codeIndex.EnableCodeIndex = DefaultCodeIndexEnabled;
+                codeIndex.PrewarmOnUnityStartup = DefaultCodeIndexPrewarmOnUnityStartup;
+                codeIndex.WarmupDelaySeconds = DefaultCodeIndexWarmupDelaySeconds;
+                codeIndex.WarmupMode = DefaultCodeIndexWarmupMode;
+                codeIndex.AutoRefreshOnFileChange = DefaultCodeIndexAutoRefreshOnFileChange;
+                codeIndex.FallbackToTextSearch = DefaultCodeIndexFallbackToTextSearch;
+                codeIndex.CleanupModeOnQuit = DefaultCodeIndexCleanupModeOnQuit;
             }
 
             if (dataVersion != CurrentDataVersion)

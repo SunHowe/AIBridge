@@ -46,7 +46,7 @@ Most Unity-side commands require an `action` such as `asset search` or `inspecto
 - `focus` is Windows CLI-only. `dialog` is CLI-only, uses Windows window APIs or macOS Accessibility permission, and omits dialog fields when no modal dialog is detected. `screenshot game` and `screenshot gif` require Play Mode; `screenshot scene_view` works in Edit mode when a Scene view is open.
 - `input` requires Play Mode and an active EventSystem; use it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
 - `runtime` is CLI-only and talks to `AIBridgeRuntime` inside a Player or Play Mode target. Use `runtime list_targets` first, then target `latest` or a specific target id.
-- `code_index` is CLI-only and read-only. It starts a project-local Roslyn daemon for symbols, definitions, and references. If semantic indexing is unavailable, trust only results marked `semantic=true`; fallback results are explicitly marked `semantic=false`.
+- `code_index` is CLI-only and read-only. It starts a project-local Roslyn daemon for symbols, definitions, references, implementations, callers, and diagnostics. If semantic indexing is unavailable, trust only results marked `semantic=true`; fallback results are explicitly marked `semantic=false`.
 
 ## Related Resources
 
@@ -129,9 +129,13 @@ $CLI code_index warmup
 $CLI code_index symbol --query PlayerController
 $CLI code_index definition --file Assets/Scripts/Foo.cs --line 42 --column 17
 $CLI code_index references --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index implementations --type Game.IFoo
+$CLI code_index derived --type Game.BasePanel
+$CLI code_index callers --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index diagnostics --file Assets/Scripts/Foo.cs
 ```
 
-Results include `semantic`, `source`, `state`, `stale`, `projectRoot`, and `solution`. Treat `semantic=false` as fallback text candidates only.
+Results include `semantic`, `source`, `state`, `stale`, `projectRoot`, and `solution`. Treat `semantic=false` as fallback text candidates only. Unity can prewarm Code Index from `AIBridge/Settings > Code Index`; if `status.stale=true`, the next semantic query refreshes before returning when auto refresh is enabled.
 
 ---
 

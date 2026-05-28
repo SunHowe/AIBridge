@@ -30,7 +30,7 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor / P
 | AI 集成 | CLI + JSON 输出 | 特定协议工具 |
 | 任务追踪 | 命令文件、结果、日志、截图 | 当前会话状态 |
 | 扩展方式 | Unity 命令 + CLI Builder | 工具服务扩展 |
-| 只读代码索引 | 不依赖 IDE 会话的 `code_index` daemon，支持符号、定义和引用查询 | 通常绑定 IDE/插件会话 |
+| 只读代码索引 | 不依赖 IDE 会话的 `code_index` daemon，支持符号、定义、引用、实现、调用者和诊断查询 | 通常绑定 IDE/插件会话 |
 | 移动端 Player 调试 | LAN/USB HTTP Runtime Bridge 支持状态、日志、截图、性能、handler，以及 HybridCLR 门控的 `code runtime_execute` | 通常需要为具体工具额外实现运行时服务支持 |
 
 ## 核心能力
@@ -39,7 +39,7 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor / P
 - **Prefab 和场景自动化**：支持简单 Inspector 字段修改、Prefab Patch dry-run、多步骤批处理和跨域重载后的任务继续。
 - **UGUI 运行时输入模拟**：Play Mode 下通过 `input` 命令模拟点击、坐标点击、拖拽和长按，适合验证按钮、背包拖放、运行时面板等基于 EventSystem 的交互。
 - **Player Runtime Bridge**：已编译 Player 中的 `AIBridgeRuntime` 可暴露运行时状态、日志、截图、性能采样、项目白名单 handler，以及 HybridCLR 门控的运行时代码执行，适合 Development Build 和移动端调试。
-- **只读 Code Index**：`code_index` 会启动不依赖 IDE 的 Roslyn/MSBuild daemon，用于符号、定义和引用查询；降级为文本搜索时会明确返回 `semantic=false`。
+- **只读 Code Index**：`code_index` 会启动不依赖 IDE 的 Roslyn/MSBuild daemon，用于符号、定义、引用、实现、调用者和诊断查询；降级为文本搜索时会明确返回 `semantic=false`。
 - **Roslyn 临时 C# 执行**：通过受控的 `code execute` 在 Unity Editor 内执行 `.aibridge/code/*.cs` 或 `.csx` 临时脚本，用于复杂一次性资源生成、结构化分析、诊断和 Runtime/Public API 调用。该能力在设置中默认启用，不可信项目或调用方环境中可在设置里关闭。
 - **视觉和日志验证**：支持 Game/Scene 视图截图、GIF、Console 日志读取、Unity 编译和测试命令，帮助 AI 闭环确认改动结果。
 
@@ -297,9 +297,15 @@ $CLI code_index reset
 $CLI code_index symbol --query PlayerController
 $CLI code_index definition --file Assets/Scripts/Foo.cs --line 42 --column 17
 $CLI code_index references --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index implementations --type Game.IFoo
+$CLI code_index derived --type Game.BasePanel
+$CLI code_index callers --file Assets/Scripts/Foo.cs --line 42 --column 17
+$CLI code_index diagnostics --file Assets/Scripts/Foo.cs
 ```
 
 该命令刻意保持只读：不做 rename、重构、自动修复或文件写入。语义 workspace 不可用时，fallback 结果会明确标记 `semantic=false`，`source` 为 `rg-fallback` 或 `text-fallback`。`doctor` 会直接报告 `.sln/.csproj` 缺失或过期等问题；最终编译权威仍然是 `compile unity`。
+
+Unity Editor 可在 `AIBridge > Settings > Code Index` 中配置启动后空闲预热、文件变化自动刷新、文本降级和退出清理策略。`status` 在源码或工程输入变化后会返回 `stale=true`；启用自动刷新时，下一次语义查询会先刷新 Roslyn workspace 再回答。
 
 </details>
 

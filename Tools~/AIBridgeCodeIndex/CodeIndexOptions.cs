@@ -11,6 +11,7 @@ namespace AIBridgeCodeIndex
         public string StatusPath { get; set; }
         public string Token { get; set; }
         public int UnityPid { get; set; }
+        public bool AutoRefresh { get; set; }
 
         public static CodeIndexOptions Parse(string[] args)
         {
@@ -46,6 +47,13 @@ namespace AIBridgeCodeIndex
                 int.TryParse(unityPidText, out unityPid);
             }
 
+            var autoRefresh = true;
+            if (values.TryGetValue("auto-refresh", out var autoRefreshText))
+            {
+                autoRefresh = !string.Equals(autoRefreshText, "false", StringComparison.OrdinalIgnoreCase)
+                              && !string.Equals(autoRefreshText, "0", StringComparison.OrdinalIgnoreCase);
+            }
+
             if (string.IsNullOrWhiteSpace(statusPath) && !string.IsNullOrWhiteSpace(projectRoot))
             {
                 statusPath = Path.Combine(projectRoot, ".aibridge", "code-index", "status.json");
@@ -57,7 +65,8 @@ namespace AIBridgeCodeIndex
                 SolutionPath = solutionPath,
                 StatusPath = statusPath,
                 Token = string.IsNullOrWhiteSpace(token) ? Guid.NewGuid().ToString("N") : token,
-                UnityPid = unityPid
+                UnityPid = unityPid,
+                AutoRefresh = autoRefresh
             };
         }
     }

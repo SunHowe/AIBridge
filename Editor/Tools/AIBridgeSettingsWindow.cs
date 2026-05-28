@@ -22,6 +22,7 @@ namespace AIBridge.Editor
             SkillLibrary,      // 推荐 Skill 库
             Scripts,          // 脚本执行
             RuntimeBridge,    // Runtime Bridge
+            CodeIndex,        // Code Index
             Actions           // 操作
         }
 
@@ -124,6 +125,9 @@ namespace AIBridge.Editor
                 case TabType.RuntimeBridge:
                     DrawRuntimeBridgeSettingsTab();
                     break;
+                case TabType.CodeIndex:
+                    DrawCodeIndexSettingsTab();
+                    break;
                 case TabType.Actions:
                     DrawActions();
                     break;
@@ -144,6 +148,7 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("Library", "推荐库"),
                 AIBridgeEditorText.T("Scripts", "脚本执行"),
                 AIBridgeEditorText.T("Runtime", "Runtime"),
+                AIBridgeEditorText.T("Code Index", "代码索引"),
                 AIBridgeEditorText.T("Actions", "操作")
             };
             _currentTab = (TabType)GUILayout.Toolbar((int)_currentTab, tabNames);

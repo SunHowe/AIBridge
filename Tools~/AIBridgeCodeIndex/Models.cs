@@ -46,7 +46,7 @@ namespace AIBridgeCodeIndex
             return new CodeIndexResponse
             {
                 success = true,
-                semantic = false,
+                semantic = status != null && string.Equals(status.state, "ready", System.StringComparison.OrdinalIgnoreCase),
                 source = "status",
                 state = status == null ? "unknown" : status.state,
                 stale = status == null || status.stale,
@@ -68,5 +68,8 @@ namespace AIBridgeCodeIndex
         public int column { get; set; }
         public string signature { get; set; }
         public string preview { get; set; }
+        public string severity { get; set; }
+        public string id { get; set; }
+        public string message { get; set; }
     }
 }

@@ -59,6 +59,10 @@ namespace AIBridgeCLI.Commands
                 case "symbol":
                 case "definition":
                 case "references":
+                case "implementations":
+                case "derived":
+                case "callers":
+                case "diagnostics":
                     return await QueryAsync(context, normalizedAction, options, timeout);
                 default:
                     return BuildFailure(context, "Unsupported code_index action: " + action);
@@ -88,7 +92,7 @@ namespace AIBridgeCLI.Commands
                     return response;
                 }
 
-                if (!IsFallbackEnabled(options))
+                if (!IsFallbackEnabled(context, options) || string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
                 {
                     return response;
                 }
@@ -96,7 +100,7 @@ namespace AIBridgeCLI.Commands
                 return BuildFallback(context, action, options, response.Value<string>("error"));
             }
 
-            if (!IsFallbackEnabled(options))
+            if (!IsFallbackEnabled(context, options) || string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
             {
                 return BuildFailure(context, "Roslyn workspace is not ready.");
             }
@@ -408,13 +412,14 @@ namespace AIBridgeCLI.Commands
                 };
             }
 
+            var manifestStale = IsManifestStale(context);
             return new JObject
             {
                 ["success"] = true,
                 ["semantic"] = IsReady(status),
                 ["source"] = "status-file",
                 ["state"] = status.Value<string>("state"),
-                ["stale"] = !reachable || status.Value<bool?>("stale") == true,
+                ["stale"] = !reachable || status.Value<bool?>("stale") == true || manifestStale,
                 ["projectRoot"] = status.Value<string>("projectRoot") ?? context.ProjectRoot,
                 ["solution"] = status.Value<string>("solution") ?? context.SolutionPath,
                 ["loadedProjects"] = status.Value<int?>("loadedProjects") ?? 0,
@@ -425,6 +430,46 @@ namespace AIBridgeCLI.Commands
                 ["reachable"] = reachable,
                 ["message"] = status.Value<string>("message")
             };
+        }
+
+        private static bool IsManifestStale(CodeIndexContext context)
+        {
+            if (context == null)
+            {
+                return true;
+            }
+
+            var manifestPath = Path.Combine(context.IndexDirectory, "manifest.json");
+            if (!File.Exists(manifestPath))
+            {
+                return true;
+            }
+
+            try
+            {
+                var entries = JArray.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+                foreach (var item in entries.OfType<JObject>())
+                {
+                    var path = item.Value<string>("path");
+                    if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                    {
+                        return true;
+                    }
+
+                    var info = new FileInfo(path);
+                    if (item.Value<long?>("ticks") != info.LastWriteTimeUtc.Ticks
+                        || item.Value<long?>("length") != info.Length)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private static JObject BuildFallback(CodeIndexContext context, string action, Dictionary<string, string> options, string warning)
@@ -606,6 +651,17 @@ namespace AIBridgeCLI.Commands
                 return query;
             }
 
+            if ((string.Equals(action, "implementations", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "derived", StringComparison.OrdinalIgnoreCase))
+                && options.TryGetValue("type", out var type))
+            {
+                var trimmedType = type == null ? null : type.Trim();
+                var lastDot = string.IsNullOrEmpty(trimmedType) ? -1 : trimmedType.LastIndexOf('.');
+                return lastDot >= 0 && lastDot + 1 < trimmedType.Length
+                    ? trimmedType.Substring(lastDot + 1)
+                    : trimmedType;
+            }
+
             if (!options.TryGetValue("file", out var file)
                 || !options.TryGetValue("line", out var lineText)
                 || !options.TryGetValue("column", out var columnText)
@@ -750,10 +806,15 @@ namespace AIBridgeCLI.Commands
             return status != null && string.Equals(status.Value<string>("state"), "ready", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsFallbackEnabled(Dictionary<string, string> options)
+        private static bool IsFallbackEnabled(CodeIndexContext context, Dictionary<string, string> options)
         {
-            return !options.TryGetValue("fallback", out var value)
-                   || !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+            if (options.TryGetValue("fallback", out var value))
+            {
+                return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
+                       && !string.Equals(value, "0", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return context == null || context.FallbackToTextSearch;
         }
 
         private static Dictionary<string, object> BuildQueryParameters(string action, Dictionary<string, string> options)
@@ -762,6 +823,23 @@ namespace AIBridgeCLI.Commands
             if (string.Equals(action, "symbol", StringComparison.OrdinalIgnoreCase))
             {
                 result["query"] = options["query"];
+                return result;
+            }
+
+            if (string.Equals(action, "implementations", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "derived", StringComparison.OrdinalIgnoreCase))
+            {
+                result["type"] = options["type"];
+                return result;
+            }
+
+            if (string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
+            {
+                if (options.TryGetValue("file", out var file) && !string.IsNullOrWhiteSpace(file))
+                {
+                    result["file"] = file;
+                }
+
                 return result;
             }
 
@@ -780,6 +858,22 @@ namespace AIBridgeCLI.Commands
                     throw new ArgumentException("Missing required parameter: --query");
                 }
 
+                return;
+            }
+
+            if (string.Equals(action, "implementations", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "derived", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!options.TryGetValue("type", out var type) || string.IsNullOrWhiteSpace(type))
+                {
+                    throw new ArgumentException("Missing required parameter: --type");
+                }
+
+                return;
+            }
+
+            if (string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
+            {
                 return;
             }
 
@@ -849,21 +943,79 @@ namespace AIBridgeCLI.Commands
             public string IndexDirectory { get; private set; }
             public string StatusPath { get; private set; }
             public bool HasUnityProjectMarkers { get; private set; }
+            public int UnityPid { get; private set; }
+            public bool AutoRefresh { get; private set; }
+            public bool FallbackToTextSearch { get; private set; }
 
             public static CodeIndexContext Resolve(Dictionary<string, string> options)
             {
                 var projectRoot = ResolveProjectRoot(options);
                 var solutionPath = ResolveSolutionPath(projectRoot, options);
                 var indexDirectory = Path.Combine(projectRoot, ".aibridge", IndexDirectoryName);
+                var unityPid = ResolveInt(options, "unity-pid");
+                var config = ReadCodeIndexConfig(indexDirectory);
                 return new CodeIndexContext
                 {
                     ProjectRoot = projectRoot,
                     SolutionPath = solutionPath,
                     IndexDirectory = indexDirectory,
                     StatusPath = Path.Combine(indexDirectory, "status.json"),
+                    UnityPid = unityPid,
+                    AutoRefresh = ResolveBool(options, "auto-refresh", GetConfigBool(config, "autoRefreshOnFileChange", true)),
+                    FallbackToTextSearch = ResolveBool(options, "fallback", GetConfigBool(config, "fallbackToTextSearch", true)),
                     HasUnityProjectMarkers = Directory.Exists(Path.Combine(projectRoot, "Assets"))
                                              && File.Exists(Path.Combine(projectRoot, "ProjectSettings", "ProjectSettings.asset"))
                 };
+            }
+
+            private static JObject ReadCodeIndexConfig(string indexDirectory)
+            {
+                if (string.IsNullOrWhiteSpace(indexDirectory))
+                {
+                    return null;
+                }
+
+                var path = Path.Combine(indexDirectory, "config.json");
+                if (!File.Exists(path))
+                {
+                    return null;
+                }
+
+                try
+                {
+                    return JObject.Parse(File.ReadAllText(path, Encoding.UTF8));
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static bool GetConfigBool(JObject config, string key, bool defaultValue)
+            {
+                return config == null ? defaultValue : config.Value<bool?>(key) ?? defaultValue;
+            }
+
+            private static int ResolveInt(Dictionary<string, string> options, string key)
+            {
+                if (options == null || !options.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+                {
+                    return 0;
+                }
+
+                int.TryParse(value, out var result);
+                return result;
+            }
+
+            private static bool ResolveBool(Dictionary<string, string> options, string key, bool defaultValue)
+            {
+                if (options == null || !options.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+                {
+                    return defaultValue;
+                }
+
+                return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
+                       && !string.Equals(value, "0", StringComparison.OrdinalIgnoreCase);
             }
 
             private static string ResolveProjectRoot(Dictionary<string, string> options)
@@ -997,6 +1149,15 @@ namespace AIBridgeCLI.Commands
                     startInfo.ArgumentList.Add("--solution");
                     startInfo.ArgumentList.Add(context.SolutionPath);
                 }
+
+                if (context.UnityPid > 0)
+                {
+                    startInfo.ArgumentList.Add("--unity-pid");
+                    startInfo.ArgumentList.Add(context.UnityPid.ToString());
+                }
+
+                startInfo.ArgumentList.Add("--auto-refresh");
+                startInfo.ArgumentList.Add(context.AutoRefresh ? "true" : "false");
             }
 
             private static string FindSourceProject(string startDirectory)
