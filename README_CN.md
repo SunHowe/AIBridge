@@ -7,19 +7,23 @@
 [English](./README.md) | 中文
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.1](https://img.shields.io/badge/Package-1.4.1-5b6cff?style=flat-square)
+![Package 1.4.2](https://img.shields.io/badge/Package-1.4.2-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
 > 设计准则：**简单、易用、稳定**。
 
-AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor / Player Runtime 之间建立稳定的 CLI 桥接。它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，模拟 UGUI/EventSystem 运行时点击与拖拽，连接已编译 Player 查询状态、日志和截图；当项目安装 HybridCLR 时，还可以在 Editor 动态编译临时运行时代码并发送到目标 Player 执行。它也支持用截图或 GIF 做视觉验证。
+AIBridge 现在已经不再是单纯类似 MCP 的连接工具。它更接近一个 AI Unity 开发 harness 框架，把项目本地工作流、AIBridge Skills、CLI 与 Runtime 工具、代码索引、视觉验证、输入模拟、Player 调试以及 AI 工具集成组合成围绕 Unity 项目的实用闭环。
 
-它面向 AI 真实参与 Unity 项目开发的场景，而不是只生成代码建议。
+当前版本仍然不够完善，但它刻意保持简单易用：安装 Package，安装 Codex 等 AI 工具集成后，开发者就能直接体验真实的 AI 辅助 Unity 开发。结合 Codex + AIBridge，Unity 开发体验已经形成从设计、开发、编译、测试、运行时验证、截图/日志到自动调试的闭环。
+
+它可以让 AI 定位真实 Unity 资源路径、检查场景和 Prefab、通过 Unity API 编辑对象、执行 Unity 编译、读取 Console 日志、运行批处理流程、执行测试，模拟 UGUI/EventSystem 运行时点击与拖拽，连接已编译 Player 查询状态、日志和截图；当项目安装 HybridCLR 时，还可以在 Editor 动态编译临时运行时代码并发送到目标 Player 执行。
 
 ## 为什么选择 AIBridge
 
-很多 Unity 自动化工具依赖持续在线的 socket 或 MCP 会话。AIBridge 的 Editor 自动化使用落盘命令请求和结果文件，Player 调试使用 HTTP Runtime 控制面，因此能更好地应对脚本重编译、域重载、编辑器焦点变化、重启以及设备/Player 会话变化。
+很多 Unity 自动化工具停留在持续在线的 socket、MCP 会话或薄命令桥接层。AIBridge 更像是包在连接层外面的 harness：它会把工作流规范和 Skills 安装到 AI 工具中，暴露 Unity 感知的 CLI 与 Runtime 能力，并把命令结果、日志、截图、GIF、代码索引结果和运行时诊断这些验证产物留在项目本地。
+
+AIBridge 的 Editor 自动化使用落盘命令请求和结果文件，Player 调试使用 HTTP Runtime 控制面，因此能更好地应对脚本重编译、域重载、编辑器焦点变化、重启以及设备/Player 会话变化。
 
 | 维度 | AIBridge | MCP / 持续连接型桥接 |
 |---|---|---|
@@ -27,9 +31,9 @@ AIBridge 是一个 Unity Package，用于在 AI 编码助手和 Unity Editor / P
 | 编译周期适应 | 可轮询并跨重载继续；Runtime 目标可重新发现 | 会话可能中断 |
 | 部署方式 | 随包 CLI 命令 | 服务端/客户端配置 |
 | 多工程识别 | 项目本地自动无感识别；从 Unity 项目根目录执行即可，无需额外映射、注册或手动选择项目 | 其它 MCP 工具已有支持，但通常依赖服务端/工具配置或当前项目选择状态 |
-| AI 集成 | CLI + JSON 输出 | 特定协议工具 |
-| 任务追踪 | 命令文件、结果、日志、截图 | 当前会话状态 |
-| 扩展方式 | Unity 命令 + CLI Builder | 工具服务扩展 |
+| AI 集成 | 项目本地工作流、Skills、CLI、JSON 输出和工具适配 | 特定协议工具 |
+| 任务追踪 | 命令文件、结果、日志、截图、GIF、代码索引结果和运行时诊断 | 当前会话状态 |
+| 扩展方式 | Unity 命令、Runtime handlers、CLI Builder、Skills 和推荐 Skill 库 | 工具服务扩展 |
 | 只读代码索引 | 不依赖 IDE 会话的 `code_index` daemon，支持符号、定义、引用、实现、调用者和诊断查询 | 通常绑定 IDE/插件会话 |
 | 移动端 Player 调试 | LAN/USB HTTP Runtime Bridge 支持状态、日志、截图、性能、handler，以及 HybridCLR 门控的 `code runtime_execute` | 通常需要为具体工具额外实现运行时服务支持 |
 

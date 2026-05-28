@@ -7,19 +7,23 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.1](https://img.shields.io/badge/Package-1.4.1-5b6cff?style=flat-square)
+![Package 1.4.2](https://img.shields.io/badge/Package-1.4.2-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
 > Design principles: **simple, easy to use, stable**.
 
-AIBridge is a Unity package that gives AI coding assistants a stable CLI bridge into Unity Editor and Player Runtime. It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, simulate UGUI/EventSystem runtime clicks and drags, connect to built Players for runtime state/log/screenshot checks, and, when HybridCLR is installed, compile temporary runtime C# in the Editor and execute it in the target Player. It also captures screenshots or GIFs for visual verification.
+AIBridge is no longer just an MCP-like connector. It is an AI Unity development harness that combines project-local workflows, AIBridge Skills, CLI and Runtime tools, code indexing, visual validation, input simulation, Player debugging, and AI-tool integrations into one practical loop around a Unity project.
 
-The package is designed for AI-assisted Unity development where the assistant must validate changes inside the Editor, not only edit files.
+The current version is still evolving, but it is intentionally simple to start using: install the package, install integrations for tools such as Codex, and developers can immediately try real AI-assisted Unity work. With Codex + AIBridge, Unity development now has a closed loop for design, implementation, compilation, tests, runtime verification, screenshots/logs, and automatic debugging.
+
+It lets agents resolve real Unity asset paths, inspect scenes and prefabs, edit objects through Unity APIs, run Unity compilation, read Console logs, execute batch workflows, run tests, simulate UGUI/EventSystem runtime clicks and drags, connect to built Players for runtime state/log/screenshot checks, and, when HybridCLR is installed, compile temporary runtime C# in the Editor and execute it in the target Player.
 
 ## Why AIBridge
 
-Many Unity automation tools depend on a live socket or MCP session. AIBridge uses file-based command requests and result files for Editor automation, plus an HTTP Runtime control plane for Player debugging, so work can survive script recompilation, domain reloads, editor focus changes, restarts, and device/player sessions.
+Many Unity automation tools stop at a live socket, MCP session, or thin command bridge. AIBridge is the harness around that connection layer: it installs workflow guidance and Skills into AI tools, exposes Unity-aware CLI and Runtime capabilities, and keeps validation artifacts such as command results, logs, screenshots, GIFs, code-index answers, and runtime diagnostics tied to the project.
+
+For Editor automation, AIBridge uses file-based command requests and result files. For Player debugging, it uses an HTTP Runtime control plane. This makes AI-assisted work more resilient across script recompilation, domain reloads, editor focus changes, restarts, and device/player sessions.
 
 | Dimension | AIBridge | MCP / persistent bridge |
 |---|---|---|
@@ -27,9 +31,9 @@ Many Unity automation tools depend on a live socket or MCP session. AIBridge use
 | Compile-cycle resilience | Polls and resumes across reloads; Runtime targets can be rediscovered | Session can drop |
 | Setup | Bundled CLI commands | Server/client wiring |
 | Multi-project recognition | Automatic and project-local: no extra mapping, registration, or manual project selection is needed when commands run from the Unity project root | Supported by some MCP tools, but usually depends on server/tool configuration or project selection state |
-| AI integration | CLI plus JSON output | Protocol-specific tools |
-| Traceability | Command files, results, logs, screenshots | Session state |
-| Extensibility | Unity commands plus CLI builders | Tool server extensions |
+| AI integration | Project-local workflow, Skills, CLI, JSON output, and tool adapters | Protocol-specific tools |
+| Traceability | Command files, results, logs, screenshots, GIFs, code-index answers, and runtime diagnostics | Session state |
+| Extensibility | Unity commands, Runtime handlers, CLI builders, Skills, and recommended Skill libraries | Tool server extensions |
 | Read-only code index | IDE-independent `code_index` daemon for symbols, definitions, references, implementations, callers, and diagnostics | Usually tied to an IDE/plugin session |
 | Mobile Player debugging | LAN/USB HTTP Runtime Bridge supports status, logs, screenshots, perf, handlers, and HybridCLR-gated `code runtime_execute` | Usually needs custom per-tool runtime server support |
 
