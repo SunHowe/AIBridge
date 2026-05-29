@@ -22,8 +22,18 @@ namespace AIBridgeCLI.Commands
                     return ExecutePlan(options, outputMode);
                 case "init":
                     return ExecuteInit(options, outputMode);
+                case "begin":
+                    return ExecuteBegin(options, outputMode);
+                case "attach":
+                    return ExecuteAttach(options, outputMode);
+                case "finish":
+                    return ExecuteFinish(options, outputMode);
                 case "run-cli":
                     return ExecuteRunCli(options, timeoutMs, outputMode);
+                case "import":
+                    return ExecuteImport(options, outputMode);
+                case "export":
+                    return ExecuteExport(options, outputMode);
                 case "status":
                     return ExecuteStatus(options, outputMode);
                 case "report":
@@ -141,6 +151,154 @@ namespace AIBridgeCLI.Commands
             }, outputMode);
         }
 
+        private static int ExecuteBegin(Dictionary<string, string> options, OutputMode outputMode)
+        {
+            var recipePath = WorkflowPathHelper.ResolveRecipePath(GetFileOrRecipe(options));
+            var doc = WorkflowRecipeLoader.Load(recipePath);
+            var validation = WorkflowValidator.ValidateDocument(doc);
+            if (!validation.Success)
+            {
+                return PrintResult(new CommandResult
+                {
+                    success = false,
+                    error = string.Join("; ", validation.Errors),
+                    data = validation
+                }, outputMode);
+            }
+
+            var inputs = WorkflowInputResolver.ResolveInputs(doc.Recipe, GetOption(options, "inputs", null));
+            inputs["recipeFile"] = doc.Path;
+
+            var store = new WorkflowRunStore();
+            var manifest = CreateManifest(doc, store, "running");
+            store.EnsureDirectories();
+            store.SaveInputs(inputs);
+            store.SaveManifest(manifest);
+            var active = WorkflowActiveRunStore.Save(manifest);
+
+            return PrintResult(new CommandResult
+            {
+                success = true,
+                data = new
+                {
+                    runId = manifest.RunId,
+                    status = manifest.Status,
+                    activeRunPath = WorkflowPathHelper.ToDisplayPath(WorkflowActiveRunStore.ActiveRunPath),
+                    runDirectory = WorkflowPathHelper.ToDisplayPath(store.RunDirectory),
+                    activeRun = active
+                }
+            }, outputMode);
+        }
+
+        private static int ExecuteAttach(Dictionary<string, string> options, OutputMode outputMode)
+        {
+            var runId = GetRequiredOption(options, "run");
+            var store = WorkflowRunStore.Open(runId);
+            var manifest = store.LoadManifest();
+            var active = WorkflowActiveRunStore.Save(manifest);
+            return PrintResult(new CommandResult
+            {
+                success = true,
+                data = new
+                {
+                    runId = manifest.RunId,
+                    status = manifest.Status,
+                    activeRunPath = WorkflowPathHelper.ToDisplayPath(WorkflowActiveRunStore.ActiveRunPath),
+                    activeRun = active
+                }
+            }, outputMode);
+        }
+
+        private static int ExecuteFinish(Dictionary<string, string> options, OutputMode outputMode)
+        {
+            var runId = GetRunId(options, true);
+            var status = NormalizeStatus(GetOption(options, "status", "passed"));
+            var store = WorkflowRunStore.Open(runId);
+            var manifest = store.LoadManifest();
+
+            RefreshGates(store, manifest);
+            manifest.Status = ResolveFinishStatus(manifest, status);
+            manifest.EndedAtUtc = DateTime.UtcNow.ToString("o");
+            WorkflowArtifactSink.UpdateSummary(manifest);
+            store.SaveManifest(manifest);
+            WorkflowArtifactSink.RefreshReportArtifact(store, manifest, "workflow finish");
+            WorkflowActiveRunStore.Clear(runId);
+
+            return PrintResult(new CommandResult
+            {
+                success = manifest.Status == "passed" || manifest.Status == "partial",
+                error = manifest.Status == "failed" || manifest.Status == "blocked" ? "Workflow run ended with status: " + manifest.Status : null,
+                data = new
+                {
+                    runId = manifest.RunId,
+                    status = manifest.Status,
+                    reportPath = WorkflowPathHelper.ToDisplayPath(store.ReportPath),
+                    manifest = manifest
+                }
+            }, outputMode);
+        }
+
+        private static int ExecuteImport(Dictionary<string, string> options, OutputMode outputMode)
+        {
+            var runId = GetRunId(options, true);
+            var artifact = WorkflowExternalResultImporter.Import(
+                runId,
+                GetOption(options, "step", null),
+                GetOption(options, "schema", null),
+                GetOption(options, "kind", null),
+                GetRequiredOption(options, "file"));
+
+            var store = WorkflowRunStore.Open(runId);
+            var manifest = store.LoadManifest();
+            RefreshGates(store, manifest);
+            WorkflowArtifactSink.RefreshReportArtifact(store, manifest, "workflow import");
+
+            return PrintResult(new CommandResult
+            {
+                success = true,
+                data = new
+                {
+                    runId = runId,
+                    artifact = artifact,
+                    reportPath = WorkflowPathHelper.ToDisplayPath(store.ReportPath)
+                }
+            }, outputMode);
+        }
+
+        private static int ExecuteExport(Dictionary<string, string> options, OutputMode outputMode)
+        {
+            var recipePath = WorkflowPathHelper.ResolveRecipePath(GetFileOrRecipe(options));
+            var target = GetRequiredOption(options, "target");
+            var output = GetOption(options, "output", null);
+            var result = WorkflowExporter.Export(recipePath, target, output);
+            var context = WorkflowRunContext.Resolve(options);
+            var attached = new List<WorkflowArtifactRef>();
+            if (context != null)
+            {
+                foreach (var file in result.Files)
+                {
+                    attached.Add(WorkflowArtifactSink.AttachFile(
+                        context.RunId,
+                        "workflow-report",
+                        WorkflowPathHelper.ResolvePath(file),
+                        "workflow export --target " + target,
+                        "Workflow export output for " + target + ".",
+                        null,
+                        null));
+                }
+            }
+
+            return PrintResult(new CommandResult
+            {
+                success = true,
+                data = new
+                {
+                    export = result,
+                    attachedArtifacts = attached
+                }
+            }, outputMode);
+        }
+
         private static int ExecuteStatus(Dictionary<string, string> options, OutputMode outputMode)
         {
             var runId = GetRequiredOption(options, "run");
@@ -160,6 +318,7 @@ namespace AIBridgeCLI.Commands
             var manifest = store.LoadManifest();
             var markdown = WorkflowReportWriter.WriteMarkdown(manifest);
             store.SaveReport(markdown);
+            WorkflowArtifactSink.RefreshReportArtifact(store, manifest, "workflow report");
 
             var format = GetOption(options, "format", "json");
             if (format.Equals("markdown", StringComparison.OrdinalIgnoreCase))
@@ -238,6 +397,138 @@ namespace AIBridgeCLI.Commands
             }
 
             throw new ArgumentException("Missing required option: --file or --recipe.");
+        }
+
+        private static string GetRunId(Dictionary<string, string> options, bool required)
+        {
+            if (options.TryGetValue("run", out var runId) && !string.IsNullOrWhiteSpace(runId))
+            {
+                return runId;
+            }
+
+            var context = WorkflowRunContext.Resolve(options);
+            if (context != null && !string.IsNullOrWhiteSpace(context.RunId))
+            {
+                return context.RunId;
+            }
+
+            if (required)
+            {
+                throw new ArgumentException("Missing required option: --run, --workflow-run, active run, or AIBRIDGE_WORKFLOW_RUN_ID.");
+            }
+
+            return null;
+        }
+
+        private static WorkflowRunManifest CreateManifest(WorkflowRecipeDocument doc, WorkflowRunStore store, string status)
+        {
+            return new WorkflowRunManifest
+            {
+                RunId = store.RunId,
+                RecipeName = doc.Recipe.Name,
+                RecipePath = WorkflowPathHelper.ToDisplayPath(doc.Path),
+                ProjectRoot = WorkflowPathHelper.NormalizeSeparators(WorkflowPathHelper.GetProjectRoot()),
+                StartedAtUtc = DateTime.UtcNow.ToString("o"),
+                Status = status
+            };
+        }
+
+        private static void RefreshGates(WorkflowRunStore store, WorkflowRunManifest manifest)
+        {
+            var recipePath = ResolveManifestRecipePath(manifest);
+            if (string.IsNullOrWhiteSpace(recipePath) || !File.Exists(recipePath))
+            {
+                WorkflowArtifactSink.UpdateSummary(manifest);
+                store.SaveManifest(manifest);
+                return;
+            }
+
+            var doc = WorkflowRecipeLoader.Load(recipePath);
+            var validation = WorkflowValidator.ValidateDocument(doc);
+            if (!validation.Success)
+            {
+                WorkflowArtifactSink.UpdateSummary(manifest);
+                store.SaveManifest(manifest);
+                return;
+            }
+
+            manifest.GateResults.Clear();
+            foreach (var gateResult in WorkflowGateEvaluator.Evaluate(doc.Recipe, manifest))
+            {
+                manifest.GateResults.Add(gateResult);
+                store.SaveGateResult(gateResult);
+            }
+
+            WorkflowArtifactSink.UpdateSummary(manifest);
+            store.SaveManifest(manifest);
+        }
+
+        private static string ResolveManifestRecipePath(WorkflowRunManifest manifest)
+        {
+            if (manifest == null || string.IsNullOrWhiteSpace(manifest.RecipePath))
+            {
+                return null;
+            }
+
+            try
+            {
+                var direct = WorkflowPathHelper.ResolvePath(manifest.RecipePath);
+                if (File.Exists(direct))
+                {
+                    return direct;
+                }
+
+                return WorkflowPathHelper.ResolveRecipePath(manifest.RecipeName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string NormalizeStatus(string status)
+        {
+            var normalized = string.IsNullOrWhiteSpace(status) ? "passed" : status.Trim().ToLowerInvariant();
+            switch (normalized)
+            {
+                case "passed":
+                case "partial":
+                case "failed":
+                case "blocked":
+                case "canceled":
+                    return normalized;
+                default:
+                    throw new ArgumentException("Unsupported workflow finish status: " + status + ".");
+            }
+        }
+
+        private static string ResolveFinishStatus(WorkflowRunManifest manifest, string requestedStatus)
+        {
+            if (!string.Equals(requestedStatus, "passed", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(requestedStatus, "partial", StringComparison.OrdinalIgnoreCase))
+            {
+                return requestedStatus;
+            }
+
+            foreach (var gate in manifest.GateResults)
+            {
+                if (!gate.Required)
+                {
+                    continue;
+                }
+
+                if (string.Equals(gate.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "failed";
+                }
+
+                if (string.Equals(gate.Status, "blocked", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "blocked";
+                }
+            }
+
+            return requestedStatus;
         }
 
         private static string GetRequiredOption(Dictionary<string, string> options, string key)

@@ -49,7 +49,9 @@ namespace AIBridgeCLI.Workflow
                 case "artifactRequired":
                     return EvaluateArtifactRequired(gate, manifest);
                 case "externalVerdict":
-                    return CreateResult(gate, "skipped", new List<string>(), "External verdict is not imported in this CLI-only run.");
+                    return EvaluateExternalVerdict(gate, manifest);
+                case "patchProposalRequired":
+                    return EvaluatePatchProposalRequired(gate, manifest);
                 default:
                     return CreateResult(gate, "blocked", new List<string>(), "Unsupported gate kind: " + gate.Kind + ".");
             }
@@ -170,12 +172,13 @@ namespace AIBridgeCLI.Workflow
         private static WorkflowGateResult EvaluateArtifactRequired(WorkflowGate gate, WorkflowRunManifest manifest)
         {
             var artifactKind = gate.ArtifactKind;
+            var schema = gate.Schema;
+            var stepId = gate.StepId;
             var min = gate.Min ?? ReadThresholdInt(gate, "min", 1);
             var evidence = new List<string>();
             foreach (var artifact in manifest.ArtifactRefs)
             {
-                if (string.IsNullOrWhiteSpace(artifactKind)
-                    || string.Equals(artifact.Kind, artifactKind, StringComparison.OrdinalIgnoreCase))
+                if (MatchesArtifactFilter(artifact, artifactKind, schema, stepId))
                 {
                     evidence.Add(artifact.ArtifactId);
                 }
@@ -184,6 +187,76 @@ namespace AIBridgeCLI.Workflow
             return evidence.Count >= min
                 ? CreateResult(gate, "passed", evidence, "Artifact requirement met.")
                 : CreateResult(gate, "failed", evidence, "Artifact requirement not met: " + evidence.Count + " < " + min + ".");
+        }
+
+        private static WorkflowGateResult EvaluateExternalVerdict(WorkflowGate gate, WorkflowRunManifest manifest)
+        {
+            var allowed = gate.Allow == null || gate.Allow.Count == 0
+                ? new List<string> { "confirmed" }
+                : gate.Allow;
+            var evidence = new List<string>();
+            var sawDisallowed = false;
+            var sawUncertain = false;
+            var disallowedStatus = "";
+
+            foreach (var artifact in manifest.ArtifactRefs)
+            {
+                if (!MatchesArtifactFilter(artifact, "verdict", "Verdict", gate.StepId))
+                {
+                    continue;
+                }
+
+                evidence.Add(artifact.ArtifactId);
+                foreach (var verdict in ReadArtifactObjects(artifact))
+                {
+                    var status = (string)verdict["status"];
+                    if (IsAllowedStatus(status, allowed))
+                    {
+                        return CreateResult(gate, "passed", evidence, "Imported external verdict allowed: " + status + ".");
+                    }
+
+                    if (string.Equals(status, "uncertain", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sawUncertain = true;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(status))
+                    {
+                        sawDisallowed = true;
+                        disallowedStatus = status;
+                    }
+                }
+            }
+
+            if (evidence.Count == 0)
+            {
+                return CreateResult(gate, "skipped", evidence, "No imported Verdict artifact found.");
+            }
+
+            if (sawDisallowed)
+            {
+                return CreateResult(gate, "failed", evidence, "Imported external verdict is not allowed: " + disallowedStatus + ".");
+            }
+
+            return sawUncertain
+                ? CreateResult(gate, "skipped", evidence, "Imported Verdict is uncertain; more evidence is required.")
+                : CreateResult(gate, "failed", evidence, "Imported Verdict artifact did not contain an allowed status.");
+        }
+
+        private static WorkflowGateResult EvaluatePatchProposalRequired(WorkflowGate gate, WorkflowRunManifest manifest)
+        {
+            var min = gate.Min ?? ReadThresholdInt(gate, "min", 1);
+            var evidence = new List<string>();
+            foreach (var artifact in manifest.ArtifactRefs)
+            {
+                if (MatchesArtifactFilter(artifact, "patch-proposal", "PatchProposal", gate.StepId))
+                {
+                    evidence.Add(artifact.ArtifactId);
+                }
+            }
+
+            return evidence.Count >= min
+                ? CreateResult(gate, "passed", evidence, "Patch proposal requirement met.")
+                : CreateResult(gate, "failed", evidence, "Patch proposal requirement not met: " + evidence.Count + " < " + min + ".");
         }
 
         private static WorkflowGateResult CreateResult(WorkflowGate gate, string status, List<string> evidence, string message)
@@ -318,6 +391,93 @@ namespace AIBridgeCLI.Workflow
             return string.Equals(kind, "screenshot", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(kind, "runtime-screenshot", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(kind, "gif", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MatchesArtifactFilter(WorkflowArtifactRef artifact, string artifactKind, string schema, string stepId)
+        {
+            if (artifact == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(artifactKind)
+                && !string.Equals(artifact.Kind, artifactKind, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(schema)
+                && !string.Equals(artifact.Schema, schema, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(stepId)
+                && !string.Equals(artifact.StepId, stepId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsAllowedStatus(string status, List<string> allowed)
+        {
+            if (string.IsNullOrWhiteSpace(status) || allowed == null)
+            {
+                return false;
+            }
+
+            foreach (var item in allowed)
+            {
+                if (string.Equals(status, item, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<JObject> ReadArtifactObjects(WorkflowArtifactRef artifact)
+        {
+            var path = ResolveArtifactPath(artifact.Path);
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                yield break;
+            }
+
+            JToken payload;
+            try
+            {
+                payload = JToken.Parse(File.ReadAllText(path));
+            }
+            catch
+            {
+                yield break;
+            }
+
+            var obj = payload as JObject;
+            if (obj != null)
+            {
+                yield return obj;
+                yield break;
+            }
+
+            var array = payload as JArray;
+            if (array == null)
+            {
+                yield break;
+            }
+
+            foreach (var item in array)
+            {
+                obj = item as JObject;
+                if (obj != null)
+                {
+                    yield return obj;
+                }
+            }
         }
 
         private static string ResolveArtifactPath(string path)

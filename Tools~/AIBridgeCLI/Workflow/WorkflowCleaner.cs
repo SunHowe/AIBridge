@@ -91,6 +91,12 @@ namespace AIBridgeCLI.Workflow
                 .ToList();
 
             var protectedLatest = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var activeRun = WorkflowActiveRunStore.Load();
+            if (activeRun != null && !string.IsNullOrWhiteSpace(activeRun.RunId))
+            {
+                protectedLatest.Add(activeRun.RunId);
+            }
+
             if (options.KeepLatest > 0)
             {
                 foreach (var info in runInfos.Take(options.KeepLatest))

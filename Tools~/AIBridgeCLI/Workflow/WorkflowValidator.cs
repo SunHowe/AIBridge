@@ -36,13 +36,13 @@ namespace AIBridgeCLI.Workflow
 
         private static readonly HashSet<string> GateFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "id", "kind", "required", "threshold", "artifactKind", "min", "allow", "evidenceRefs"
+            "id", "kind", "required", "threshold", "artifactKind", "stepId", "schema", "min", "allow", "evidenceRefs"
         };
 
         private static readonly HashSet<string> GateKinds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "unityCompile", "dotnetBuild", "consoleErrors", "testRun", "screenshotExists",
-            "runtimeReachable", "runtimeErrors", "artifactRequired", "externalVerdict"
+            "runtimeReachable", "runtimeErrors", "artifactRequired", "externalVerdict", "patchProposalRequired"
         };
 
         private static readonly HashSet<string> ArtifactFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

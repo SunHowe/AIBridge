@@ -224,6 +224,7 @@ namespace AIBridgeCLI.Commands
                 || string.Equals(key, "quiet", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "help", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "on-dialog", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "workflow-run", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "target", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "runtime-dir", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(key, "transport", StringComparison.OrdinalIgnoreCase)

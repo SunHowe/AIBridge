@@ -16,7 +16,7 @@ Do not use it for routine single-file edits, simple CLI command lookup, or ordin
 - Use pipeline for staged per-item work. Use parallel barriers only when a downstream step needs all upstream results.
 - Use structured outputs for intermediate results: findings, verdicts, plans, patch proposals, validation results, artifact references, and Runtime target references.
 - Separate claims from evidence. Treat AIBridge CLI, Runtime, screenshots, logs, tests, and Code Index output as evidence.
-- Do not describe `workflow` as a generic AI agent scheduler. Current CLI support is limited to recipe list/validate/plan/init, deterministic `run-cli` steps, run artifacts, gates, and reports; `agent` and `manual` steps require an external executor.
+- Do not describe `workflow` as a generic AI agent scheduler. Current CLI support covers recipe list/validate/plan/init, active run begin/attach/finish, deterministic `run-cli` steps, ordinary-command artifact attach, external result import, adapter export, gates, and reports; `agent` and `manual` steps require an external executor.
 
 ## Reference Loading
 

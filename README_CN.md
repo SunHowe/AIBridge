@@ -139,16 +139,24 @@ $CLI workflow list
 $CLI workflow validate --recipe runtime-target-sweep
 $CLI workflow plan --recipe runtime-ui-validation --format markdown
 $CLI workflow init --recipe runtime-ui-validation
+$CLI workflow begin --recipe unity-change-implementation
+$CLI get_logs --logType Error --count 50 --workflow-run wf_20260529_213000_ab12cd34
+$CLI runtime screenshot --target latest --workflow-run wf_20260529_213000_ab12cd34
+$CLI workflow import --run wf_20260529_213000_ab12cd34 --step adversarial-verify --schema Verdict --file verdicts.json
+$CLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json"
 $CLI workflow status --run wf_20260529_213000_ab12cd34
 $CLI workflow report --run wf_20260529_213000_ab12cd34 --format markdown
+$CLI workflow finish --run wf_20260529_213000_ab12cd34 --status passed
 $CLI workflow clean --older-than 30d --dry-run true
 $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 ```
 
 内置 recipes 包括 `unity-change-implementation`、`unity-sharded-review`、`runtime-target-sweep`、`runtime-ui-validation`、`prefab-asset-sweep` 和 `bug-hunter-loop`。
 
-Workflow 清理默认保守：`clean` 默认只 dry-run。只有保存到 `.aibridge/workflows/settings.json` 后才会启用自动清理；之后 `run-cli` 开始前会按设置清理旧 run，并保留失败/阻塞 run 和最新保留数量。
+`workflow begin` 会创建 active run；普通命令可通过 `--workflow-run`、`AIBRIDGE_WORKFLOW_RUN_ID` 或 active run 指针归档证据。`workflow import` 保存 `Verdict` 等结构化外部结果，`externalVerdict` gate 只基于导入 artifact 通过。`workflow export` 生成外部工具交接包，它只是导出器，不是内置 LLM runtime。
+
+Workflow 清理默认保守：`clean` 默认只 dry-run。只有保存到 `.aibridge/workflows/settings.json` 后才会启用自动清理；之后 `run-cli` 开始前会按设置清理旧 run，并保留失败/阻塞 run、active run 和最新保留数量。
 
 Unity 命令超时且怀疑 Editor 被保存/确认弹窗阻塞时，使用 `dialog status` 检查。未检测到弹窗时，精简 JSON 不返回 `blockedByDialog` 和 `dialogs` 字段；字段不存在即表示无弹窗。macOS 检查和点击弹窗需要 Accessibility 权限。Unity 命令可显式指定超时处理，例如 `--on-dialog cancel` 或 `--on-dialog discard`。
 

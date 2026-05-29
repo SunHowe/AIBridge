@@ -93,6 +93,12 @@ namespace AIBridgeCLI.Workflow
         [JsonProperty("artifactKind")]
         public string ArtifactKind { get; set; }
 
+        [JsonProperty("stepId")]
+        public string StepId { get; set; }
+
+        [JsonProperty("schema")]
+        public string Schema { get; set; }
+
         [JsonProperty("min")]
         public int? Min { get; set; }
 
@@ -261,6 +267,12 @@ namespace AIBridgeCLI.Workflow
         [JsonProperty("sourceCommandId")]
         public string SourceCommandId { get; set; }
 
+        [JsonProperty("stepId")]
+        public string StepId { get; set; }
+
+        [JsonProperty("schema")]
+        public string Schema { get; set; }
+
         [JsonProperty("sha256")]
         public string Sha256 { get; set; }
 
@@ -344,6 +356,105 @@ namespace AIBridgeCLI.Workflow
 
         [JsonProperty("warnings")]
         public List<string> Warnings { get; } = new List<string>();
+    }
+
+    public class WorkflowExternalResult
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("kind")]
+        public string Kind { get; set; }
+
+        [JsonProperty("schema")]
+        public string Schema { get; set; }
+
+        [JsonProperty("stepId")]
+        public string StepId { get; set; }
+
+        [JsonProperty("artifactId")]
+        public string ArtifactId { get; set; }
+    }
+
+    public class WorkflowFinding
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("severity")]
+        public string Severity { get; set; }
+
+        [JsonProperty("file")]
+        public string File { get; set; }
+
+        [JsonProperty("line")]
+        public int? Line { get; set; }
+
+        [JsonProperty("claim")]
+        public string Claim { get; set; }
+
+        [JsonProperty("evidence")]
+        public List<string> Evidence { get; set; } = new List<string>();
+
+        [JsonProperty("repro")]
+        public string Repro { get; set; }
+
+        [JsonProperty("confidence")]
+        public string Confidence { get; set; }
+    }
+
+    public class WorkflowVerdict
+    {
+        [JsonProperty("claimId")]
+        public string ClaimId { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; }
+
+        [JsonProperty("evidenceRefs")]
+        public List<string> EvidenceRefs { get; set; } = new List<string>();
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+
+        [JsonProperty("remainingRisk")]
+        public string RemainingRisk { get; set; }
+    }
+
+    public class WorkflowPatchProposal
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("files")]
+        public List<string> Files { get; set; } = new List<string>();
+
+        [JsonProperty("summary")]
+        public string Summary { get; set; }
+
+        [JsonProperty("risk")]
+        public string Risk { get; set; }
+
+        [JsonProperty("validation")]
+        public List<string> Validation { get; set; } = new List<string>();
+    }
+
+    public class WorkflowValidationResultArtifact
+    {
+        [JsonProperty("gate")]
+        public string Gate { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; }
+
+        [JsonProperty("command")]
+        public string Command { get; set; }
+
+        [JsonProperty("evidence")]
+        public List<string> Evidence { get; set; } = new List<string>();
+
+        [JsonProperty("artifacts")]
+        public List<string> Artifacts { get; set; } = new List<string>();
     }
 
     public class WorkflowRecipeListItem

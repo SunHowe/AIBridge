@@ -14,7 +14,12 @@ namespace AIBridgeCLI.Commands
             "validate",
             "plan",
             "init",
+            "begin",
+            "attach",
+            "finish",
             "run-cli",
+            "import",
+            "export",
             "status",
             "report",
             "clean"
@@ -39,6 +44,21 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("recipe", "Built-in recipe name", true),
                 new ParameterInfo("output", "Output directory for copied recipe", false, ".aibridge/workflows/recipes")
             },
+            ["begin"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("file", "Workflow recipe path or name", false),
+                new ParameterInfo("recipe", "Built-in or project recipe name", false),
+                new ParameterInfo("inputs", "JSON object or path to inputs JSON", false)
+            },
+            ["attach"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("run", "Workflow run id to set as active", true)
+            },
+            ["finish"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("run", "Workflow run id. Defaults to active run or AIBRIDGE_WORKFLOW_RUN_ID", false),
+                new ParameterInfo("status", "Final status: passed, partial, failed, blocked, canceled", false, "passed")
+            },
             ["run-cli"] = new List<ParameterInfo>
             {
                 new ParameterInfo("file", "Workflow recipe path or name", false),
@@ -47,6 +67,22 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("resume", "Existing run id to resume", false),
                 new ParameterInfo("rerun", "Rerun mode, e.g. failed", false),
                 new ParameterInfo("timeout", "Per-step CLI command timeout in milliseconds", false, "5000")
+            },
+            ["import"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("run", "Workflow run id. Defaults to active run or AIBRIDGE_WORKFLOW_RUN_ID", false),
+                new ParameterInfo("step", "Source workflow step id", false),
+                new ParameterInfo("schema", "Imported schema: Verdict, Finding, PatchProposal, ValidationResult", false, "Verdict"),
+                new ParameterInfo("kind", "Artifact kind override, e.g. verdict, finding, patch-proposal", false),
+                new ParameterInfo("file", "JSON file to import", true)
+            },
+            ["export"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("file", "Workflow recipe path or name", false),
+                new ParameterInfo("recipe", "Built-in or project recipe name", false),
+                new ParameterInfo("target", "Export target: claude-workflow, codex-task-pack, generic-cli", true),
+                new ParameterInfo("output", "Output directory", false, ".aibridge/workflows/exports"),
+                new ParameterInfo("workflow-run", "Optional workflow run id to attach export artifacts", false)
             },
             ["status"] = new List<ParameterInfo>
             {
@@ -84,6 +120,10 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("  AIBridgeCLI workflow validate --recipe runtime-target-sweep");
             sb.AppendLine("  AIBridgeCLI workflow plan --recipe runtime-ui-validation --format markdown");
             sb.AppendLine("  AIBridgeCLI workflow init --recipe runtime-ui-validation");
+            sb.AppendLine("  AIBridgeCLI workflow begin --recipe unity-change-implementation");
+            sb.AppendLine("  AIBridgeCLI workflow import --run wf_20260529_213000_ab12cd34 --step adversarial-verify --schema Verdict --file verdicts.json");
+            sb.AppendLine("  AIBridgeCLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports");
+            sb.AppendLine("  AIBridgeCLI workflow finish --run wf_20260529_213000_ab12cd34 --status passed");
             sb.AppendLine("  AIBridgeCLI workflow run-cli --file .aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json");
             sb.AppendLine("  AIBridgeCLI workflow report --run wf_20260529_213000_ab12cd34 --format markdown");
             sb.AppendLine("  AIBridgeCLI workflow clean --older-than 3d --dry-run false --keep-failed true --keep-latest 20");

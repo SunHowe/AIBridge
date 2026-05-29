@@ -33,7 +33,7 @@ namespace AIBridge.Editor.Tests
         private static readonly HashSet<string> GateKinds = new HashSet<string>
         {
             "unityCompile", "dotnetBuild", "consoleErrors", "testRun", "screenshotExists",
-            "runtimeReachable", "runtimeErrors", "artifactRequired", "externalVerdict"
+            "runtimeReachable", "runtimeErrors", "artifactRequired", "externalVerdict", "patchProposalRequired"
         };
 
         [Test]

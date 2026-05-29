@@ -220,6 +220,7 @@ namespace AIBridgeCLI
             if (noWait)
             {
                 var noWaitResult = sender.TrySendCommandNoWait(request);
+                TryAttachWorkflowResult(parsed, noWaitResult, noWaitResult.success ? 0 : 1);
                 if (!noWaitResult.success)
                 {
                     OutputFormatter.PrintResult(noWaitResult, outputMode, includeIdInRaw: false);
@@ -238,6 +239,7 @@ namespace AIBridgeCLI
             }
 
             var result = sender.SendCommand(request);
+            TryAttachWorkflowResult(parsed, result, result.success ? 0 : 1);
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
 
             return result.success ? 0 : 1;

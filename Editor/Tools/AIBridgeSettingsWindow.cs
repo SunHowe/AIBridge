@@ -162,6 +162,11 @@ namespace AIBridge.Editor
                     "AI Bridge enables communication between AI assistants and Unity Editor.\nUse F12 to capture screenshots and F11 to record GIFs in Play mode.",
                     "AI Bridge 用于在 AI 助手和 Unity Editor 之间建立通信。\nPlay 模式下可用 F12 截图，F11 录制 GIF。"),
                 MessageType.Info);
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Open Workflows", "打开 Workflows"), GUILayout.Height(24)))
+            {
+                AIBridgeWorkflowsWindow.OpenWindow();
+            }
         }
 
         private void DrawBridgeSettings()

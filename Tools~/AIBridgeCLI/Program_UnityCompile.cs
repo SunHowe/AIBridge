@@ -43,11 +43,10 @@ namespace AIBridgeCLI
             {
                 if (!IsTransportTimeoutError(startResult.error))
                 {
-                    OutputUnityCompileResult(outputMode, false, "failed", 0, 0, 0,
+                    return FinishUnityCompile(parsed, outputMode, false, "failed", 0, 0, 0,
                         new List<object>(), new List<object>(),
                         startResult.error ?? "Failed to start compilation. Make sure Unity Editor is running.",
                         startedByInvocation, attachedToExistingCompilation, false);
-                    return 1;
                 }
 
                 startCommunicationTimedOut = true;
@@ -70,10 +69,9 @@ namespace AIBridgeCLI
                 if (!startedByInvocation && !attachedToExistingCompilation)
                 {
                     // No compilation needed (no code changes)
-                    OutputUnityCompileResult(outputMode, true, "idle", 0, 0, 0,
+                    return FinishUnityCompile(parsed, outputMode, true, "idle", 0, 0, 0,
                         new List<object>(), new List<object>(), null,
                         startedByInvocation, attachedToExistingCompilation, true);
-                    return 0;
                 }
 
                 if (outputMode == OutputMode.Pretty && attachedToExistingCompilation)
@@ -175,9 +173,8 @@ namespace AIBridgeCLI
                         ? "Unity compile request was not acknowledged immediately, but the final compilation result was retrieved."
                         : null);
 
-                OutputUnityCompileResult(outputMode, success, status, duration, errorCount, warningCount, errors, warnings, resultError,
+                return FinishUnityCompile(parsed, outputMode, success, status, duration, errorCount, warningCount, errors, warnings, resultError,
                     startedByInvocation, attachedToExistingCompilation, true);
-                return success ? 0 : 1;
             }
 
             // Timeout
@@ -185,12 +182,11 @@ namespace AIBridgeCLI
                 ? $"Compilation status could not be confirmed within {compileTimeout}ms after the initial compile request timed out. Unity may still be compiling. Last communication error: {lastCommunicationError ?? "unknown"}"
                 : $"Compilation timed out after {compileTimeout}ms. Unity may still be compiling.";
 
-            OutputUnityCompileResult(outputMode, false, "timeout",
+            return FinishUnityCompile(parsed, outputMode, false, "timeout",
                 (DateTime.Now - startTime).TotalSeconds, 0, 0,
                 new List<object>(), new List<object>(),
                 timeoutReason,
                 startedByInvocation, attachedToExistingCompilation, false);
-            return 1;
         }
 
         static bool IsTransportTimeoutError(string error)
@@ -208,6 +204,34 @@ namespace AIBridgeCLI
             var normalizedPollInterval = Math.Max(pollInterval, 100);
             var preferredTimeout = Math.Min(30000, compileTimeout);
             return Math.Max(normalizedPollInterval, preferredTimeout);
+        }
+
+        static int FinishUnityCompile(ParsedArgs parsed, OutputMode outputMode, bool success, string status,
+            double duration, int errorCount, int warningCount,
+            List<object> errors, List<object> warnings, string error,
+            bool startedByInvocation = false, bool attachedToExistingCompilation = false, bool statusConfirmed = true)
+        {
+            TryAttachWorkflowResult(parsed, new CommandResult
+            {
+                success = success,
+                error = error,
+                data = new
+                {
+                    status = status,
+                    duration = Math.Round(duration, 2),
+                    errorCount = errorCount,
+                    warningCount = warningCount,
+                    startedByInvocation = startedByInvocation,
+                    attachedToExistingCompilation = attachedToExistingCompilation,
+                    statusConfirmed = statusConfirmed,
+                    errors = errors,
+                    warnings = warnings
+                }
+            }, success ? 0 : 1);
+
+            OutputUnityCompileResult(outputMode, success, status, duration, errorCount, warningCount, errors, warnings, error,
+                startedByInvocation, attachedToExistingCompilation, statusConfirmed);
+            return success ? 0 : 1;
         }
 
         /// <summary>

@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
+using Newtonsoft.Json.Linq;
 
 namespace AIBridgeCLI.Workflow
 {
@@ -66,8 +70,16 @@ namespace AIBridgeCLI.Workflow
             sb.AppendLine("|---|---|---|---|---|");
             foreach (var artifact in manifest.ArtifactRefs)
             {
-                sb.AppendLine("| `" + artifact.ArtifactId + "` | `" + artifact.Kind + "` | `" + artifact.Path + "` | " + EscapeTable(artifact.SourceCommand) + " | " + EscapeTable(artifact.Summary) + " |");
+                var kind = artifact.Kind;
+                if (!string.IsNullOrWhiteSpace(artifact.Schema))
+                {
+                    kind += "/" + artifact.Schema;
+                }
+
+                sb.AppendLine("| `" + artifact.ArtifactId + "` | `" + kind + "` | `" + artifact.Path + "` | " + EscapeTable(artifact.SourceCommand) + " | " + EscapeTable(artifact.Summary) + " |");
             }
+
+            WriteVerdictSection(sb, manifest);
 
             sb.AppendLine();
             sb.AppendLine("## Reproduce");
@@ -79,6 +91,156 @@ namespace AIBridgeCLI.Workflow
             return sb.ToString();
         }
 
+        private static void WriteVerdictSection(StringBuilder sb, WorkflowRunManifest manifest)
+        {
+            var verdicts = ReadVerdicts(manifest);
+            if (verdicts.Count == 0)
+            {
+                return;
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("## Imported Verdicts");
+            WriteVerdictTable(sb, "confirmed", verdicts);
+            WriteVerdictTable(sb, "refuted", verdicts);
+            WriteVerdictTable(sb, "uncertain", verdicts);
+        }
+
+        private static void WriteVerdictTable(StringBuilder sb, string status, List<VerdictRow> verdicts)
+        {
+            var wroteHeader = false;
+            foreach (var verdict in verdicts)
+            {
+                if (!string.Equals(verdict.Status, status, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!wroteHeader)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("### " + status);
+                    sb.AppendLine();
+                    sb.AppendLine("| Claim | Artifact | Evidence | Reason | Remaining Risk |");
+                    sb.AppendLine("|---|---|---|---|---|");
+                    wroteHeader = true;
+                }
+
+                sb.AppendLine("| " + EscapeTable(verdict.ClaimId) + " | `" + verdict.ArtifactId + "` | " + EscapeTable(verdict.EvidenceRefs) + " | " + EscapeTable(verdict.Reason) + " | " + EscapeTable(verdict.RemainingRisk) + " |");
+            }
+        }
+
+        private static List<VerdictRow> ReadVerdicts(WorkflowRunManifest manifest)
+        {
+            var result = new List<VerdictRow>();
+            if (manifest == null || manifest.ArtifactRefs == null)
+            {
+                return result;
+            }
+
+            foreach (var artifact in manifest.ArtifactRefs)
+            {
+                if (!string.Equals(artifact.Kind, "verdict", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(artifact.Schema, "Verdict", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                foreach (var obj in ReadArtifactObjects(artifact.Path))
+                {
+                    result.Add(new VerdictRow
+                    {
+                        ArtifactId = artifact.ArtifactId,
+                        ClaimId = (string)obj["claimId"],
+                        Status = (string)obj["status"],
+                        Reason = (string)obj["reason"],
+                        RemainingRisk = (string)obj["remainingRisk"],
+                        EvidenceRefs = ReadEvidenceRefs(obj["evidenceRefs"] ?? obj["evidence"])
+                    });
+                }
+            }
+
+            return result;
+        }
+
+        private static IEnumerable<JObject> ReadArtifactObjects(string displayPath)
+        {
+            var path = ResolveArtifactPath(displayPath);
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                yield break;
+            }
+
+            JToken payload;
+            try
+            {
+                payload = JToken.Parse(File.ReadAllText(path));
+            }
+            catch
+            {
+                yield break;
+            }
+
+            var obj = payload as JObject;
+            if (obj != null)
+            {
+                yield return obj;
+                yield break;
+            }
+
+            var array = payload as JArray;
+            if (array == null)
+            {
+                yield break;
+            }
+
+            foreach (var item in array)
+            {
+                obj = item as JObject;
+                if (obj != null)
+                {
+                    yield return obj;
+                }
+            }
+        }
+
+        private static string ReadEvidenceRefs(JToken token)
+        {
+            if (token == null)
+            {
+                return "";
+            }
+
+            var array = token as JArray;
+            if (array == null)
+            {
+                return token.ToString();
+            }
+
+            var values = new List<string>();
+            foreach (var item in array)
+            {
+                values.Add(item.ToString());
+            }
+
+            return string.Join(", ", values.ToArray());
+        }
+
+        private static string ResolveArtifactPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            if (Path.IsPathRooted(path))
+            {
+                return path;
+            }
+
+            return Path.GetFullPath(Path.Combine(WorkflowPathHelper.GetProjectRoot(), path));
+        }
+
         private static string EscapeTable(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -87,6 +249,16 @@ namespace AIBridgeCLI.Workflow
             }
 
             return value.Replace("|", "\\|").Replace("\r", " ").Replace("\n", " ");
+        }
+
+        private sealed class VerdictRow
+        {
+            public string ArtifactId { get; set; }
+            public string ClaimId { get; set; }
+            public string Status { get; set; }
+            public string EvidenceRefs { get; set; }
+            public string Reason { get; set; }
+            public string RemainingRisk { get; set; }
         }
     }
 }

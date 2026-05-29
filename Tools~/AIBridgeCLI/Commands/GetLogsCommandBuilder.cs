@@ -43,7 +43,8 @@ namespace AIBridgeCLI.Commands
             {
                 if (kvp.Key == "json" || kvp.Key == "stdin" || kvp.Key == "timeout" ||
                     kvp.Key == "no-wait" || kvp.Key == "raw" || kvp.Key == "pretty" ||
-                    kvp.Key == "quiet" || kvp.Key == "help" || kvp.Key == "on-dialog") continue;
+                    kvp.Key == "quiet" || kvp.Key == "help" || kvp.Key == "on-dialog" ||
+                    kvp.Key == "workflow-run") continue;
                 request.@params[kvp.Key] = ParseValue(kvp.Value);
             }
 

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using AIBridgeCLI.Commands;
 using AIBridgeCLI.Core;
+using AIBridgeCLI.Workflow;
 using Newtonsoft.Json;
 
 namespace AIBridgeCLI
@@ -100,6 +102,81 @@ namespace AIBridgeCLI
                 && result.CommandType.Equals("runtime", StringComparison.OrdinalIgnoreCase)
                 && result.Action.Equals("logs", StringComparison.OrdinalIgnoreCase)
                 && arg.Equals("clear", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string BuildWorkflowSourceCommand(ParsedArgs parsed)
+        {
+            if (parsed == null || string.IsNullOrWhiteSpace(parsed.CommandType))
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder();
+            builder.Append(parsed.CommandType);
+            if (!string.IsNullOrWhiteSpace(parsed.Action))
+            {
+                builder.Append(' ').Append(parsed.Action);
+            }
+
+            foreach (var option in parsed.Options)
+            {
+                if (IsWorkflowSourceCommandExcludedOption(option.Key))
+                {
+                    continue;
+                }
+
+                builder.Append(" --").Append(option.Key);
+                if (!string.Equals(option.Value, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    builder.Append(' ').Append(QuoteWorkflowSourceValue(option.Value));
+                }
+            }
+
+            foreach (var extraArg in parsed.ExtraArgs)
+            {
+                builder.Append(' ').Append(QuoteWorkflowSourceValue(extraArg));
+            }
+
+            return builder.ToString();
+        }
+
+        static void TryAttachWorkflowResult(ParsedArgs parsed, CommandResult result, int exitCode)
+        {
+            if (parsed == null || result == null)
+            {
+                return;
+            }
+
+            var attach = WorkflowArtifactSink.TryAttachCommandResult(
+                parsed.Options,
+                BuildWorkflowSourceCommand(parsed),
+                result,
+                exitCode);
+            if (!string.IsNullOrWhiteSpace(attach.Error))
+            {
+                OutputFormatter.PrintWarning("Workflow artifact attach failed: " + attach.Error);
+            }
+        }
+
+        private static bool IsWorkflowSourceCommandExcludedOption(string key)
+        {
+            return string.Equals(key, WorkflowRunContext.WorkflowRunOption, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "raw", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "pretty", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "quiet", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(key, "help", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string QuoteWorkflowSourceValue(string value)
+        {
+            if (value == null)
+            {
+                return "\"\"";
+            }
+
+            return value.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '"' }) < 0
+                ? value
+                : "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
 
         class ParsedArgs

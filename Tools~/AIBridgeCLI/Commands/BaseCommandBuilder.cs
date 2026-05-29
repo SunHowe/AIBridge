@@ -59,7 +59,7 @@ namespace AIBridgeCLI.Commands
             var globalOptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "json", "stdin", "timeout", "transport-timeout", "poll-interval",
-                "no-wait", "raw", "pretty", "quiet", "help", "on-dialog"
+                "no-wait", "raw", "pretty", "quiet", "help", "on-dialog", "workflow-run"
             };
 
             // Process other options

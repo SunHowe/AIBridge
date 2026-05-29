@@ -52,8 +52,7 @@ namespace AIBridgeCLI
             {
                 if (!IsTransportTimeoutError(startResult.error))
                 {
-                    OutputTestResult(outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), startResult.error, false, false, false);
-                    return 1;
+                    return FinishTestResult(parsed, outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), startResult.error, false, false, false);
                 }
 
                 if (outputMode == OutputMode.Pretty)
@@ -70,7 +69,7 @@ namespace AIBridgeCLI
 
                 if (startStatus == "passed" || startStatus == "failed")
                 {
-                    return OutputFinalTestStatus(outputMode, data, startedByInvocation, attachedToExistingRun, true, startTime);
+                    return OutputFinalTestStatus(parsed, outputMode, data, startedByInvocation, attachedToExistingRun, true, startTime);
                 }
             }
 
@@ -100,12 +99,11 @@ namespace AIBridgeCLI
                     continue;
                 }
 
-                return OutputFinalTestStatus(outputMode, statusData, false, false, true, startTime);
+                return OutputFinalTestStatus(parsed, outputMode, statusData, false, false, true, startTime);
             }
 
-            OutputTestResult(outputMode, false, "timeout", null, (DateTime.Now - startTime).TotalSeconds, null, 0, 0, 0, 0, 0,
+            return FinishTestResult(parsed, outputMode, false, "timeout", null, (DateTime.Now - startTime).TotalSeconds, null, 0, 0, 0, 0, 0,
                 new List<object>(), $"Test run timed out after {testTimeout}ms. Unity may still be running tests.", false, false, false);
-            return 1;
         }
 
         /// <summary>
@@ -130,15 +128,13 @@ namespace AIBridgeCLI
 
             if (!result.success)
             {
-                OutputTestResult(outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), result.error, false, false, false);
-                return 1;
+                return FinishTestResult(parsed, outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), result.error, false, false, false);
             }
 
             var data = result.data as Newtonsoft.Json.Linq.JObject;
             if (data == null)
             {
-                OutputTestResult(outputMode, true, "idle", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), null, false, false, true);
-                return 0;
+                return FinishTestResult(parsed, outputMode, true, "idle", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), null, false, false, true);
             }
 
             var status = (string)data["status"] ?? "idle";
@@ -155,12 +151,11 @@ namespace AIBridgeCLI
             var startedByInvocation = (bool?)data["startedByInvocation"] ?? false;
             var success = status == "idle" || status == "running" || status == "passed";
 
-            OutputTestResult(outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
+            return FinishTestResult(parsed, outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
                 failedTests, null, startedByInvocation, attachedToExistingRun, true);
-            return success ? 0 : 1;
         }
 
-        static int OutputFinalTestStatus(OutputMode outputMode, Newtonsoft.Json.Linq.JObject data,
+        static int OutputFinalTestStatus(ParsedArgs parsed, OutputMode outputMode, Newtonsoft.Json.Linq.JObject data,
             bool startedByInvocation, bool attachedToExistingRun, bool statusConfirmed, DateTime startTime)
         {
             var status = (string)data?["status"] ?? "failed";
@@ -177,9 +172,8 @@ namespace AIBridgeCLI
             attachedToExistingRun = (bool?)data?["attachedToExistingRun"] ?? attachedToExistingRun;
             var success = status == "passed";
 
-            OutputTestResult(outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
+            return FinishTestResult(parsed, outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
                 failedTests, null, startedByInvocation, attachedToExistingRun, statusConfirmed);
-            return success ? 0 : 1;
         }
 
         static List<object> ConvertFailedTests(Newtonsoft.Json.Linq.JArray failedTestsArray)
@@ -290,6 +284,38 @@ namespace AIBridgeCLI
                     Console.WriteLine($"    message: {failedTestObj.message}");
                 }
             }
+        }
+
+        static int FinishTestResult(ParsedArgs parsed, OutputMode outputMode, bool success, string status, string mode, double duration, string startedAt,
+            int total, int passed, int failed, int skipped, int inconclusive,
+            List<object> failedTests, string error,
+            bool startedByInvocation, bool attachedToExistingRun, bool statusConfirmed)
+        {
+            TryAttachWorkflowResult(parsed, new CommandResult
+            {
+                success = success,
+                error = error,
+                data = new
+                {
+                    status = status,
+                    mode = mode,
+                    startedAt = startedAt,
+                    duration = Math.Round(duration, 2),
+                    total = total,
+                    passed = passed,
+                    failed = failed,
+                    skipped = skipped,
+                    inconclusive = inconclusive,
+                    startedByInvocation = startedByInvocation,
+                    attachedToExistingRun = attachedToExistingRun,
+                    statusConfirmed = statusConfirmed,
+                    failedTests = failedTests
+                }
+            }, success ? 0 : 1);
+
+            OutputTestResult(outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
+                failedTests, error, startedByInvocation, attachedToExistingRun, statusConfirmed);
+            return success ? 0 : 1;
         }
     }
 }

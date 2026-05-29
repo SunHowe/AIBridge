@@ -1,6 +1,6 @@
 # Recipe Schema
 
-Purpose: define AIBridge workflow recipe JSON files used by `workflow validate`, `workflow plan`, `workflow init`, and `workflow run-cli`.
+Purpose: define AIBridge workflow recipe JSON files used by `workflow validate`, `workflow plan`, `workflow init`, `workflow run-cli`, active run attach, external result import, and adapter export.
 
 ## Locations
 
@@ -19,15 +19,27 @@ $CLI workflow list
 $CLI workflow validate --recipe runtime-target-sweep
 $CLI workflow plan --recipe runtime-ui-validation --format markdown
 $CLI workflow init --recipe runtime-ui-validation
+$CLI workflow begin --recipe unity-change-implementation
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
+$CLI get_logs --logType Error --workflow-run <runId>
+$CLI runtime screenshot --target latest --workflow-run <runId>
+$CLI workflow import --run <runId> --step adversarial-verify --schema Verdict --file verdicts.json
+$CLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports
 $CLI workflow status --run <runId>
 $CLI workflow report --run <runId> --format markdown
+$CLI workflow finish --run <runId> --status passed
 $CLI workflow clean --older-than 30d --dry-run true
 $CLI workflow clean --older-than 3d --dry-run false --keep-failed true --keep-latest 20
 $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 ```
 
 `run-cli` executes only deterministic `cli`, `barrier`, and `report` steps. It records `agent` and `manual` steps as `skipped_requires_external_executor`; external tools such as Codex, Claude, or Cursor remain responsible for those steps.
+
+`begin` creates a run and writes `.aibridge/workflows/active-run.json`. Ordinary commands attach evidence when they receive `--workflow-run <runId>`, when `AIBRIDGE_WORKFLOW_RUN_ID` is set, or when an active run exists. `finish` refreshes gates/report and clears the active run pointer.
+
+`import` copies structured external results into run artifacts. `Verdict.status` must be `confirmed`, `refuted`, or `uncertain`; `externalVerdict` gates pass only from imported Verdict artifacts, not from prose summaries.
+
+`export` compiles a recipe into an external task package or script (`codex-task-pack`, `generic-cli`, `claude-workflow`). Exporters do not run external agents and do not provide an LLM runtime.
 
 `clean` is safe by default (`dry-run=true`). Persisted auto-clean settings live in `.aibridge/workflows/settings.json`; when `autoCleanEnabled=true`, `workflow run-cli` opportunistically removes old runs before starting a new run while respecting `keepFailed`, `keepLatest`, and `maxDeletePerRun`.
 
@@ -126,10 +138,12 @@ Standard kinds:
 - `runtime-perf`
 - `runtime-handler-result`
 - `patch-proposal`
+- `verdict`
+- `finding`
 - `validation-report`
 - `workflow-report`
 
-Screenshots, GIFs, and Runtime screenshots are referenced from their existing `.aibridge` cache paths by default. Readable non-image output files are copied into the run artifact directory when they are under the copy limit; large files may be referenced by `sourcePath`.
+Artifacts may include `stepId` and `schema` for imported structured results. Screenshots, GIFs, and Runtime screenshots are referenced from their existing `.aibridge` cache paths by default. Readable non-image output files are copied into the run artifact directory when they are under the copy limit; large files may be referenced by `sourcePath`.
 
 ## Gates
 
@@ -144,12 +158,16 @@ Allowed `kind` values:
 - `runtimeErrors`
 - `artifactRequired`
 - `externalVerdict`
+- `patchProposalRequired`
 
 Required gates failing make the run `failed` or `blocked`. Optional gate failures make evidence visible without forcing the run to fail.
+
+`artifactRequired` may filter by `artifactKind`, `schema`, and `stepId`. `externalVerdict` uses `allow` values such as `confirmed`. `uncertain` is reported as an evidence gap and does not count as pass or fail.
 
 ## Boundaries
 
 - Do not use workflow recipes as a generic LLM scheduler.
 - Do not imply `agent` or `manual` steps are executed by AIBridge.
+- Treat adapter exports as handoff artifacts only; execution and result return must be explicit.
 - Keep parallel agents read-only unless isolated worktrees, ownership, merge, and validation gates are explicit.
 - Never parallel-write Prefab, Scene, `.asset`, or `.meta` files.

@@ -29,6 +29,7 @@ namespace AIBridgeCLI
             if (noWait)
             {
                 result = sender.TrySendCommandNoWait(request);
+                TryAttachWorkflowResult(parsed, result, result.success ? 0 : 1);
                 if (outputMode == OutputMode.Pretty)
                 {
                     OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
@@ -47,6 +48,7 @@ namespace AIBridgeCLI
             }
 
             result = sender.SendCommand(request);
+            TryAttachWorkflowResult(parsed, result, result.success ? 0 : 1);
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
             return result.success ? 0 : 1;
         }
@@ -106,6 +108,7 @@ namespace AIBridgeCLI
                 };
             }
 
+            TryAttachWorkflowResult(parsed, result, result.success ? 0 : 1);
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
             return result.success ? 0 : 1;
         }
