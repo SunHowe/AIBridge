@@ -128,16 +128,16 @@ namespace AIBridge.Editor
                 Directory.CreateDirectory(nameIndexDirectory);
                 Directory.CreateDirectory(tokenIndexDirectory);
 
-                var previousHashes = ReadPreviousAssemblyHashes(Path.Combine(snapshotDirectory, ManifestJsonFileName));
+                var previousState = ReadPreviousSnapshotState(snapshotDirectory);
                 var fileHashCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var collection = CollectAssemblyRecords(request, fileHashCache);
+                var collection = CollectAssemblyRecords(request, fileHashCache, previousState.FileStates);
                 var records = collection.IncludedRecords;
                 var changedRecords = new List<AssemblyRecord>();
                 for (var i = 0; i < records.Count; i++)
                 {
                     var record = records[i];
                     string previousHash;
-                    var unchanged = previousHashes.TryGetValue(record.AssemblyId, out previousHash)
+                    var unchanged = previousState.AssemblyHashes.TryGetValue(record.AssemblyId, out previousHash)
                                     && string.Equals(previousHash, record.AssemblyHash, StringComparison.OrdinalIgnoreCase)
                                     && File.Exists(Path.Combine(snapshotDirectory, record.SnapshotFile))
                                     && File.Exists(Path.Combine(snapshotDirectory, record.NameIndexFile))
@@ -195,7 +195,10 @@ namespace AIBridge.Editor
             }
         }
 
-        private static SnapshotCollection CollectAssemblyRecords(SnapshotRequest request, Dictionary<string, string> fileHashCache)
+        private static SnapshotCollection CollectAssemblyRecords(
+            SnapshotRequest request,
+            Dictionary<string, string> fileHashCache,
+            Dictionary<string, FileState> previousFileStates)
         {
             var projectRoot = request.ProjectRoot;
             var filterConfig = request.FilterConfig;
@@ -226,8 +229,8 @@ namespace AIBridge.Editor
                 var input = request.Assemblies[i];
                 record.Sources.Clear();
                 record.References.Clear();
-                AddFileStates(projectRoot, input.SourceFiles, record.Sources, fileHashCache, includeHash: true);
-                AddFileStates(projectRoot, input.ReferenceFiles, record.References, fileHashCache, includeHash: true);
+                AddFileStates(projectRoot, input.SourceFiles, record.Sources, fileHashCache, includeHash: true, previousFileStates: previousFileStates);
+                AddFileStates(projectRoot, input.ReferenceFiles, record.References, fileHashCache, includeHash: true, previousFileStates: previousFileStates);
                 collection.IncludedRecords.Add(record);
             }
 
@@ -245,7 +248,7 @@ namespace AIBridge.Editor
                     if (excludedAssemblyIds.Contains(dependency.AssemblyId))
                     {
                         // 被过滤的源码程序集仍以编译输出 DLL 的形式参与语义解析，避免工程源码缺少类型定义。
-                        AddFileStates(projectRoot, new[] { dependency.OutputPath }, record.References, fileHashCache, includeHash: true);
+                        AddFileStates(projectRoot, new[] { dependency.OutputPath }, record.References, fileHashCache, includeHash: true, previousFileStates: previousFileStates);
                         continue;
                     }
 
@@ -459,7 +462,8 @@ namespace AIBridge.Editor
             string[] paths,
             List<FileState> target,
             Dictionary<string, string> fileHashCache,
-            bool includeHash)
+            bool includeHash,
+            Dictionary<string, FileState> previousFileStates = null)
         {
             var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; target != null && i < target.Count; i++)
@@ -496,11 +500,39 @@ namespace AIBridge.Editor
                     Path = normalized,
                     Length = info.Length,
                     LastWriteTimeTicks = info.LastWriteTimeUtc.Ticks,
-                    Hash = includeHash ? ComputeFileHash(fullPath, fileHashCache) : string.Empty
+                    Hash = includeHash
+                        ? ResolveFileHash(normalized, fullPath, info, fileHashCache, previousFileStates)
+                        : string.Empty
                 });
             }
 
             target.Sort((left, right) => string.Compare(left.Path, right.Path, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string ResolveFileHash(
+            string normalizedPath,
+            string fullPath,
+            FileInfo info,
+            Dictionary<string, string> fileHashCache,
+            Dictionary<string, FileState> previousFileStates)
+        {
+            FileState previous;
+            if (previousFileStates != null
+                && previousFileStates.TryGetValue(normalizedPath, out previous)
+                && previous.Length == info.Length
+                && previous.LastWriteTimeTicks == info.LastWriteTimeUtc.Ticks
+                && !string.IsNullOrEmpty(previous.Hash))
+            {
+                // 增量刷新先复用上一份 snapshot 中未变化文件的 hash，避免每次刷新全量读盘。
+                if (fileHashCache != null)
+                {
+                    fileHashCache[Path.GetFullPath(fullPath)] = previous.Hash;
+                }
+
+                return previous.Hash;
+            }
+
+            return ComputeFileHash(fullPath, fileHashCache);
         }
 
         private static void WriteManifestBinary(string path, SnapshotManifest manifest)
@@ -612,8 +644,8 @@ namespace AIBridge.Editor
             out List<string> nameEntries,
             out List<string> tokenEntries)
         {
-            var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-            var tokens = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var tokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < record.Sources.Count; i++)
             {
                 var fullPath = ResolveSnapshotPath(projectRoot, record.Sources[i].Path);
@@ -623,6 +655,7 @@ namespace AIBridge.Editor
                 }
 
                 var lineNumber = 0;
+                var fileTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var line in File.ReadLines(fullPath))
                 {
                     lineNumber++;
@@ -630,18 +663,26 @@ namespace AIBridge.Editor
                     for (var j = 0; j < matches.Count; j++)
                     {
                         var value = matches[j].Value;
-                        var entry = value + "|" + record.Sources[i].Path + "|" + lineNumber.ToString(CultureInfo.InvariantCulture);
-                        tokens.Add(entry);
+                        fileTokens.Add(value);
                         if (LooksLikeDeclarationName(line, value))
                         {
+                            var entry = value + "|" + record.Sources[i].Path + "|" + lineNumber.ToString(CultureInfo.InvariantCulture);
                             names.Add(entry);
                         }
                     }
                 }
+
+                foreach (var value in fileTokens)
+                {
+                    // references 查询只需要 token -> file 候选集合，行号写 0 保持旧解析格式兼容。
+                    tokens.Add(value + "|" + record.Sources[i].Path + "|0");
+                }
             }
 
             nameEntries = new List<string>(names);
+            nameEntries.Sort(StringComparer.OrdinalIgnoreCase);
             tokenEntries = new List<string>(tokens);
+            tokenEntries.Sort(StringComparer.OrdinalIgnoreCase);
         }
 
         private static bool LooksLikeDeclarationName(string line, string value)
@@ -745,28 +786,47 @@ namespace AIBridge.Editor
             AtomicReplace(tempPath, path);
         }
 
-        private static Dictionary<string, string> ReadPreviousAssemblyHashes(string manifestJsonPath)
+        private static PreviousSnapshotState ReadPreviousSnapshotState(string snapshotDirectory)
         {
-            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            if (!File.Exists(manifestJsonPath))
+            var result = new PreviousSnapshotState();
+            var manifestPath = Path.Combine(snapshotDirectory, ManifestBinFileName);
+            if (!File.Exists(manifestPath))
             {
                 return result;
             }
 
             try
             {
-                var json = File.ReadAllText(manifestJsonPath, Encoding.UTF8);
-                var matches = Regex.Matches(
-                    json,
-                    "\"assemblyId\"\\s*:\\s*\"(?<id>(?:\\\\.|[^\"])*)\"(?:(?!\"assemblyId\").)*\"assemblyHash\"\\s*:\\s*\"(?<hash>(?:\\\\.|[^\"])*)\"",
-                    RegexOptions.Singleline);
-                for (var i = 0; i < matches.Count; i++)
+                using (var stream = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new BinaryReader(stream, Encoding.UTF8))
                 {
-                    var id = Regex.Unescape(matches[i].Groups["id"].Value);
-                    var hash = Regex.Unescape(matches[i].Groups["hash"].Value);
-                    if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(hash))
+                    ReadSnapshotHeader(reader, ManifestFormatKind);
+                    var schemaVersion = reader.ReadInt32();
+                    ReadBinaryString(reader);
+                    ReadBinaryString(reader);
+                    ReadBinaryString(reader);
+                    ReadBinaryString(reader);
+                    reader.ReadBoolean();
+                    ReadBinaryStringList(reader);
+                    ReadBinaryStringList(reader);
+                    ReadBinaryString(reader);
+                    reader.ReadInt32();
+                    reader.ReadInt32();
+                    if (schemaVersion != SchemaVersion)
                     {
-                        result[id] = hash;
+                        return result;
+                    }
+
+                    var count = reader.ReadInt32();
+                    for (var i = 0; i < count; i++)
+                    {
+                        var record = ReadBinaryAssemblyRecord(reader);
+                        if (!string.IsNullOrWhiteSpace(record.AssemblyId) && !string.IsNullOrWhiteSpace(record.AssemblyHash))
+                        {
+                            result.AssemblyHashes[record.AssemblyId] = record.AssemblyHash;
+                        }
+
+                        ReadPreviousAssemblyFile(snapshotDirectory, record, result);
                     }
                 }
             }
@@ -775,6 +835,133 @@ namespace AIBridge.Editor
             }
 
             return result;
+        }
+
+        private static void ReadPreviousAssemblyFile(string snapshotDirectory, AssemblyRecord record, PreviousSnapshotState state)
+        {
+            if (record == null || state == null || string.IsNullOrEmpty(record.SnapshotFile))
+            {
+                return;
+            }
+
+            var path = Path.Combine(snapshotDirectory, record.SnapshotFile);
+            if (!File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new BinaryReader(stream, Encoding.UTF8))
+                {
+                    ReadSnapshotHeader(reader, AssemblyFormatKind);
+                    ReadBinaryAssemblyRecord(reader);
+                    ReadBinaryStringList(reader);
+                    AddPreviousFileStates(state, ReadBinaryFileStates(reader));
+                    AddPreviousFileStates(state, ReadBinaryFileStates(reader));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void AddPreviousFileStates(PreviousSnapshotState state, List<FileState> files)
+        {
+            if (state == null || files == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < files.Count; i++)
+            {
+                var file = files[i];
+                if (file != null && !string.IsNullOrEmpty(file.Path) && !state.FileStates.ContainsKey(file.Path))
+                {
+                    state.FileStates[file.Path] = file;
+                }
+            }
+        }
+
+        private static void ReadSnapshotHeader(BinaryReader reader, int expectedFormatKind)
+        {
+            var magic = Encoding.ASCII.GetString(reader.ReadBytes(Magic.Length));
+            var schema = reader.ReadInt32();
+            var formatKind = reader.ReadInt32();
+            reader.ReadInt64();
+            if (!string.Equals(magic, Magic, StringComparison.Ordinal) || schema != SchemaVersion || formatKind != expectedFormatKind)
+            {
+                throw new InvalidDataException("Unsupported Code Index snapshot format.");
+            }
+        }
+
+        private static AssemblyRecord ReadBinaryAssemblyRecord(BinaryReader reader)
+        {
+            var record = new AssemblyRecord
+            {
+                AssemblyName = ReadBinaryString(reader),
+                AssemblyId = ReadBinaryString(reader),
+                SnapshotFile = ReadBinaryString(reader),
+                NameIndexFile = ReadBinaryString(reader),
+                TokenIndexFile = ReadBinaryString(reader),
+                OutputPath = ReadBinaryString(reader),
+                AsmdefPath = ReadBinaryString(reader),
+                LanguageVersion = ReadBinaryString(reader),
+                AllowUnsafe = reader.ReadBoolean()
+            };
+            reader.ReadInt32();
+            reader.ReadInt32();
+            record.DefinesHash = ReadBinaryString(reader);
+            record.SourcesHash = ReadBinaryString(reader);
+            record.ReferencesHash = ReadBinaryString(reader);
+            record.CompilerOptionsHash = ReadBinaryString(reader);
+            record.AssemblyHash = ReadBinaryString(reader);
+            record.LastWriteTimeTicks = reader.ReadInt64();
+            record.DependencyAssemblyIds = ReadBinaryStringList(reader);
+            record.ReverseDependencyAssemblyIds = ReadBinaryStringList(reader);
+            return record;
+        }
+
+        private static List<string> ReadBinaryStringList(BinaryReader reader)
+        {
+            var count = reader.ReadInt32();
+            var result = new List<string>(Math.Max(0, count));
+            for (var i = 0; i < count; i++)
+            {
+                result.Add(ReadBinaryString(reader));
+            }
+
+            return result;
+        }
+
+        private static List<FileState> ReadBinaryFileStates(BinaryReader reader)
+        {
+            var count = reader.ReadInt32();
+            var result = new List<FileState>(Math.Max(0, count));
+            for (var i = 0; i < count; i++)
+            {
+                result.Add(new FileState
+                {
+                    Path = ReadBinaryString(reader),
+                    Length = reader.ReadInt64(),
+                    LastWriteTimeTicks = reader.ReadInt64(),
+                    Hash = ReadBinaryString(reader)
+                });
+            }
+
+            return result;
+        }
+
+        private static string ReadBinaryString(BinaryReader reader)
+        {
+            var length = reader.ReadInt32();
+            if (length < 0)
+            {
+                return null;
+            }
+
+            return Encoding.UTF8.GetString(reader.ReadBytes(length));
         }
 
         private static string[] ReadStringArray(object instance, string name)
@@ -1425,6 +1612,12 @@ namespace AIBridge.Editor
             public List<string> IgnoredAssemblyPatterns = new List<string>();
             public List<string> IgnoredSourcePathPatterns = new List<string>();
             public string FilterHash;
+        }
+
+        private sealed class PreviousSnapshotState
+        {
+            public Dictionary<string, string> AssemblyHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, FileState> FileStates = new Dictionary<string, FileState>(StringComparer.OrdinalIgnoreCase);
         }
 
         private sealed class AssemblyRecord

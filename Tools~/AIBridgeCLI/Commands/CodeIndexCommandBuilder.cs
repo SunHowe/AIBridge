@@ -40,7 +40,8 @@ namespace AIBridgeCLI.Commands
             ["callers"] = WithLocation(),
             ["diagnostics"] = WithCommon(new List<ParameterInfo>
             {
-                new ParameterInfo("file", "Optional source file path. Omit for project diagnostics", false),
+                new ParameterInfo("file", "Source file path", false),
+                new ParameterInfo("all", "Run full workspace diagnostics explicitly", false, "false"),
                 new ParameterInfo("fallback", "Fallback to text search when Roslyn is unavailable", false, "true")
             })
         };

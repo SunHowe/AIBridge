@@ -99,6 +99,12 @@ namespace AIBridgeCodeIndex
                 await Task.WhenAny(_refreshTask, Task.Delay(500));
             }
 
+            var workspace = GetWorkspace();
+            if (workspace != null)
+            {
+                workspace.Dispose();
+            }
+
             CleanupTransientState();
         }
 
@@ -406,6 +412,7 @@ namespace AIBridgeCodeIndex
         private async Task RefreshWorkspaceInBackgroundAsync()
         {
             var nextWorkspace = new CodeIndexWorkspace(_options.ProjectRoot);
+            var swapped = false;
             try
             {
                 await nextWorkspace.WarmupAsync();
@@ -421,10 +428,15 @@ namespace AIBridgeCodeIndex
 
                 var stale = nextWorkspace.IsStale();
                 var staleReason = nextWorkspace.StaleReason;
+                CodeIndexWorkspace oldWorkspace;
                 lock (_workspaceLock)
                 {
+                    oldWorkspace = _workspace;
                     _workspace = nextWorkspace;
+                    swapped = true;
                 }
+
+                ScheduleWorkspaceDispose(oldWorkspace);
 
                 lock (_statusLock)
                 {
@@ -458,6 +470,11 @@ namespace AIBridgeCodeIndex
             }
             catch (Exception ex)
             {
+                if (!swapped)
+                {
+                    nextWorkspace.Dispose();
+                }
+
                 if (_shutdownRequested)
                 {
                     return;
@@ -484,6 +501,20 @@ namespace AIBridgeCodeIndex
         private void RefreshStaleState()
         {
             RefreshStaleState(GetWorkspace());
+        }
+
+        private static void ScheduleWorkspaceDispose(CodeIndexWorkspace workspace)
+        {
+            if (workspace == null)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(30000);
+                workspace.Dispose();
+            });
         }
 
         private void RefreshStaleState(CodeIndexWorkspace workspace)

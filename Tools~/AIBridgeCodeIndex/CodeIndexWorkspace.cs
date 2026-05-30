@@ -14,7 +14,7 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace AIBridgeCodeIndex
 {
-    internal sealed class CodeIndexWorkspace
+    internal sealed class CodeIndexWorkspace : IDisposable
     {
         private const int MaxSymbolResults = 100;
         private const int MaxReferenceResults = 500;
@@ -28,8 +28,9 @@ namespace AIBridgeCodeIndex
         private const string ManifestFileName = "manifest.bin";
 
         private readonly string _projectRoot;
-        private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _loadGate = new SemaphoreSlim(1, 1);
         private readonly object _stateLock = new object();
+        private readonly object _tokenIndexLock = new object();
         private AdhocWorkspace _workspace;
         private Solution _solution;
         private SnapshotManifest _manifest;
@@ -37,12 +38,35 @@ namespace AIBridgeCodeIndex
         private List<string> _workspaceWarnings = new List<string>();
         private Dictionary<string, MetadataReference> _metadataReferenceCache = new Dictionary<string, MetadataReference>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, Document> _documentPathMap = new Dictionary<string, Document>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, SourceSnapshotInfo> _sourcePathMap = new Dictionary<string, SourceSnapshotInfo>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, List<CodeIndexItem>> _symbolNameMap = new Dictionary<string, List<CodeIndexItem>>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, AssemblySnapshot> _assemblyById = new Dictionary<string, AssemblySnapshot>(StringComparer.OrdinalIgnoreCase);
+        private HashSet<string> _loadedAssemblyIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, HashSet<string>> _tokenDocumentIndex;
         private string _loadedManifestHash;
+        private bool _loadedAllAssemblies;
+        private bool _disposed;
 
         public CodeIndexWorkspace(string projectRoot)
         {
             _projectRoot = Path.GetFullPath(projectRoot);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (_workspace != null)
+            {
+                _workspace.Dispose();
+                _workspace = null;
+            }
+
+            _loadGate.Dispose();
         }
 
         public string SolutionPath { get { return null; } }
@@ -87,45 +111,37 @@ namespace AIBridgeCodeIndex
 
         public async Task WarmupAsync()
         {
-            await _gate.WaitAsync();
+            await _loadGate.WaitAsync();
             try
             {
                 LoadSnapshotIndex();
             }
             finally
             {
-                _gate.Release();
+                _loadGate.Release();
             }
         }
 
         public async Task<CodeIndexResponse> QueryAsync(string action, Dictionary<string, object> parameters)
         {
-            await _gate.WaitAsync();
-            try
+            switch ((action ?? string.Empty).Trim().ToLowerInvariant())
             {
-                switch ((action ?? string.Empty).Trim().ToLowerInvariant())
-                {
-                    case "symbol":
-                        return QuerySymbol(GetString(parameters, "query"));
-                    case "definition":
-                        return await QueryDefinitionAsync(parameters);
-                    case "references":
-                        return await QueryReferencesAsync(parameters);
-                    case "implementations":
-                        return await QueryImplementationsAsync(parameters);
-                    case "derived":
-                        return await QueryDerivedAsync(parameters);
-                    case "callers":
-                        return await QueryCallersAsync(parameters);
-                    case "diagnostics":
-                        return await QueryDiagnosticsAsync(parameters);
-                    default:
-                        return BuildResponse("Unsupported code_index action: " + action);
-                }
-            }
-            finally
-            {
-                _gate.Release();
+                case "symbol":
+                    return QuerySymbol(GetString(parameters, "query"));
+                case "definition":
+                    return await QueryDefinitionAsync(parameters);
+                case "references":
+                    return await QueryReferencesAsync(parameters);
+                case "implementations":
+                    return await QueryImplementationsAsync(parameters);
+                case "derived":
+                    return await QueryDerivedAsync(parameters);
+                case "callers":
+                    return await QueryCallersAsync(parameters);
+                case "diagnostics":
+                    return await QueryDiagnosticsAsync(parameters);
+                default:
+                    return BuildResponse("Unsupported code_index action: " + action);
             }
         }
 
@@ -147,6 +163,9 @@ namespace AIBridgeCodeIndex
             _documentPathMap.Clear();
             _tokenDocumentIndex = null;
             _symbols = symbols;
+            _loadedAssemblyIds.Clear();
+            _loadedAllAssemblies = false;
+            RebuildSnapshotMaps(manifest, symbols);
             ApplyManifestStatus(manifest, loadedProjects: 0, loadedDocuments: 0);
             _manifest = manifest;
             _loadedManifestHash = ComputeFileHash(manifestPath);
@@ -154,19 +173,20 @@ namespace AIBridgeCodeIndex
             SnapshotExists = true;
         }
 
-        private void LoadSnapshotWorkspace()
+        private void LoadSnapshotWorkspace(HashSet<string> requiredAssemblyIds, bool loadAllAssemblies)
         {
             var manifestPath = GetManifestPath();
             var manifest = LoadSnapshotManifestWithAssemblies();
             _workspaceWarnings = new List<string>();
+            var assembliesToLoad = SelectAssemblies(manifest, requiredAssemblyIds, loadAllAssemblies);
 
             var workspace = new AdhocWorkspace();
             var solution = workspace.CurrentSolution;
             var projectIds = new Dictionary<string, ProjectId>(StringComparer.OrdinalIgnoreCase);
 
-            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            for (var i = 0; i < assembliesToLoad.Count; i++)
             {
-                var record = manifest.Assemblies[i];
+                var record = assembliesToLoad[i];
                 var projectId = ProjectId.CreateNewId(record.AssemblyName);
                 projectIds[record.AssemblyId] = projectId;
                 var parseOptions = BuildParseOptions(record);
@@ -186,9 +206,9 @@ namespace AIBridgeCodeIndex
                 solution = solution.AddProject(info);
             }
 
-            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            for (var i = 0; i < assembliesToLoad.Count; i++)
             {
-                var record = manifest.Assemblies[i];
+                var record = assembliesToLoad[i];
                 var projectId = projectIds[record.AssemblyId];
                 var metadataReferences = BuildMetadataReferences(record);
                 solution = solution.AddMetadataReferences(projectId, metadataReferences);
@@ -216,15 +236,14 @@ namespace AIBridgeCodeIndex
                 }
             }
 
-            if (_workspace != null)
-            {
-                _workspace.Dispose();
-            }
-
+            var previousWorkspace = _workspace;
             _workspace = workspace;
             _solution = solution;
             workspace.TryApplyChanges(solution);
             RebuildDocumentPathMap();
+            _loadedAssemblyIds = new HashSet<string>(projectIds.Keys, StringComparer.OrdinalIgnoreCase);
+            _loadedAllAssemblies = loadAllAssemblies || _loadedAssemblyIds.Count >= manifest.Assemblies.Count;
+            RebuildSnapshotMaps(manifest, _symbols);
 
             ApplyManifestStatus(
                 manifest,
@@ -234,6 +253,7 @@ namespace AIBridgeCodeIndex
             _loadedManifestHash = ComputeFileHash(manifestPath);
             StaleReason = null;
             SnapshotExists = true;
+            ScheduleWorkspaceDispose(previousWorkspace);
         }
 
         private SnapshotManifest LoadSnapshotManifestWithAssemblies()
@@ -292,13 +312,269 @@ namespace AIBridgeCodeIndex
 
         private void EnsureSemanticWorkspaceLoaded()
         {
-            if (_workspace != null && _solution != null)
+            EnsureSemanticWorkspaceLoaded(null, loadAllAssemblies: true);
+        }
+
+        private void EnsureSemanticWorkspaceLoaded(AssemblySnapshot targetAssembly, bool includeReverseDependencies)
+        {
+            if (targetAssembly == null)
+            {
+                EnsureSemanticWorkspaceLoaded(null, loadAllAssemblies: true);
+                return;
+            }
+
+            var requiredAssemblyIds = BuildRequiredAssemblyIds(targetAssembly, includeReverseDependencies);
+            EnsureSemanticWorkspaceLoaded(requiredAssemblyIds, loadAllAssemblies: false);
+        }
+
+        private void EnsureSemanticWorkspaceLoaded(HashSet<string> requiredAssemblyIds, bool loadAllAssemblies)
+        {
+            if (IsSemanticWorkspaceLoadedFor(requiredAssemblyIds, loadAllAssemblies))
             {
                 return;
             }
 
-            // 默认 warmup 只装载轻量索引；只有真正需要语义能力的查询才构建 Roslyn workspace。
-            LoadSnapshotWorkspace();
+            _loadGate.Wait();
+            try
+            {
+                if (IsSemanticWorkspaceLoadedFor(requiredAssemblyIds, loadAllAssemblies))
+                {
+                    return;
+                }
+
+                var nextRequiredAssemblyIds = loadAllAssemblies
+                    ? null
+                    : MergeLoadedAssemblyIds(requiredAssemblyIds);
+
+                // 默认 warmup 只装载轻量索引；语义 workspace 按目标程序集和依赖逐步扩展。
+                LoadSnapshotWorkspace(nextRequiredAssemblyIds, loadAllAssemblies);
+            }
+            finally
+            {
+                _loadGate.Release();
+            }
+        }
+
+        private void EnsureSnapshotIndexLoaded()
+        {
+            if (_manifest != null)
+            {
+                return;
+            }
+
+            _loadGate.Wait();
+            try
+            {
+                if (_manifest == null)
+                {
+                    LoadSnapshotIndex();
+                }
+            }
+            finally
+            {
+                _loadGate.Release();
+            }
+        }
+
+        private static void ScheduleWorkspaceDispose(AdhocWorkspace workspace)
+        {
+            if (workspace == null)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(30000);
+                workspace.Dispose();
+            });
+        }
+
+        private bool IsSemanticWorkspaceLoadedFor(HashSet<string> requiredAssemblyIds, bool loadAllAssemblies)
+        {
+            if (_workspace == null || _solution == null)
+            {
+                return false;
+            }
+
+            if (loadAllAssemblies)
+            {
+                return _loadedAllAssemblies;
+            }
+
+            if (_loadedAllAssemblies || requiredAssemblyIds == null || requiredAssemblyIds.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (var assemblyId in requiredAssemblyIds)
+            {
+                if (!_loadedAssemblyIds.Contains(assemblyId))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private HashSet<string> MergeLoadedAssemblyIds(HashSet<string> requiredAssemblyIds)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_loadedAssemblyIds != null)
+            {
+                foreach (var assemblyId in _loadedAssemblyIds)
+                {
+                    result.Add(assemblyId);
+                }
+            }
+
+            if (requiredAssemblyIds != null)
+            {
+                foreach (var assemblyId in requiredAssemblyIds)
+                {
+                    result.Add(assemblyId);
+                }
+            }
+
+            return result;
+        }
+
+        private List<AssemblySnapshot> SelectAssemblies(SnapshotManifest manifest, HashSet<string> requiredAssemblyIds, bool loadAllAssemblies)
+        {
+            var result = new List<AssemblySnapshot>();
+            if (manifest == null)
+            {
+                return result;
+            }
+
+            for (var i = 0; i < manifest.Assemblies.Count; i++)
+            {
+                var record = manifest.Assemblies[i];
+                if (loadAllAssemblies || requiredAssemblyIds == null || requiredAssemblyIds.Contains(record.AssemblyId))
+                {
+                    result.Add(record);
+                }
+            }
+
+            return result;
+        }
+
+        private void RebuildSnapshotMaps(SnapshotManifest manifest, List<CodeIndexItem> symbols)
+        {
+            var sourcePathMap = new Dictionary<string, SourceSnapshotInfo>(StringComparer.OrdinalIgnoreCase);
+            var symbolNameMap = new Dictionary<string, List<CodeIndexItem>>(StringComparer.OrdinalIgnoreCase);
+            var assemblyById = new Dictionary<string, AssemblySnapshot>(StringComparer.OrdinalIgnoreCase);
+
+            if (manifest != null)
+            {
+                for (var i = 0; i < manifest.Assemblies.Count; i++)
+                {
+                    var assembly = manifest.Assemblies[i];
+                    if (!string.IsNullOrEmpty(assembly.AssemblyId))
+                    {
+                        assemblyById[assembly.AssemblyId] = assembly;
+                    }
+
+                    for (var j = 0; j < assembly.Sources.Count; j++)
+                    {
+                        var relativePath = assembly.Sources[j].Path;
+                        var fullPath = ResolveAbsolutePath(relativePath);
+                        if (!string.IsNullOrWhiteSpace(fullPath) && !sourcePathMap.ContainsKey(fullPath))
+                        {
+                            sourcePathMap[fullPath] = new SourceSnapshotInfo
+                            {
+                                Assembly = assembly,
+                                FullPath = fullPath,
+                                RelativePath = relativePath
+                            };
+                        }
+                    }
+                }
+            }
+
+            if (symbols != null)
+            {
+                for (var i = 0; i < symbols.Count; i++)
+                {
+                    var item = symbols[i];
+                    if (item == null || string.IsNullOrWhiteSpace(item.name))
+                    {
+                        continue;
+                    }
+
+                    List<CodeIndexItem> items;
+                    if (!symbolNameMap.TryGetValue(item.name, out items))
+                    {
+                        items = new List<CodeIndexItem>();
+                        symbolNameMap[item.name] = items;
+                    }
+
+                    items.Add(item);
+                }
+            }
+
+            _sourcePathMap = sourcePathMap;
+            _symbolNameMap = symbolNameMap;
+            _assemblyById = assemblyById;
+        }
+
+        private HashSet<string> BuildRequiredAssemblyIds(AssemblySnapshot root, bool includeReverseDependencies)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (root == null)
+            {
+                return result;
+            }
+
+            AddAssemblyAndDependencies(root.AssemblyId, result);
+            if (includeReverseDependencies)
+            {
+                AddReverseDependencies(root.AssemblyId, result);
+            }
+
+            return result;
+        }
+
+        private void AddAssemblyAndDependencies(string assemblyId, HashSet<string> result)
+        {
+            if (string.IsNullOrEmpty(assemblyId) || result == null || !result.Add(assemblyId))
+            {
+                return;
+            }
+
+            AssemblySnapshot assembly;
+            if (!_assemblyById.TryGetValue(assemblyId, out assembly) || assembly == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < assembly.DependencyAssemblyIds.Count; i++)
+            {
+                AddAssemblyAndDependencies(assembly.DependencyAssemblyIds[i], result);
+            }
+        }
+
+        private void AddReverseDependencies(string assemblyId, HashSet<string> result)
+        {
+            AssemblySnapshot assembly;
+            if (string.IsNullOrEmpty(assemblyId)
+                || result == null
+                || !_assemblyById.TryGetValue(assemblyId, out assembly)
+                || assembly == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < assembly.ReverseDependencyAssemblyIds.Count; i++)
+            {
+                var reverseId = assembly.ReverseDependencyAssemblyIds[i];
+                if (!result.Contains(reverseId))
+                {
+                    AddAssemblyAndDependencies(reverseId, result);
+                    AddReverseDependencies(reverseId, result);
+                }
+            }
         }
 
         private List<CodeIndexItem> LoadNameIndexSymbols(SnapshotManifest manifest)
@@ -351,61 +627,69 @@ namespace AIBridgeCodeIndex
                 return _tokenDocumentIndex;
             }
 
-            var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-            if (_manifest == null)
+            lock (_tokenIndexLock)
             {
+                if (_tokenDocumentIndex != null)
+                {
+                    return _tokenDocumentIndex;
+                }
+
+                var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+                if (_manifest == null)
+                {
+                    _tokenDocumentIndex = result;
+                    return result;
+                }
+
+                for (var i = 0; i < _manifest.Assemblies.Count; i++)
+                {
+                    var record = _manifest.Assemblies[i];
+                    var path = Path.Combine(GetSnapshotDirectory(), record.TokenIndexFile);
+                    if (!File.Exists(path))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (var reader = new BinaryReader(stream, Encoding.UTF8))
+                        {
+                            ReadHeader(reader, TextIndexFormatKind);
+                            ReadString(reader);
+                            ReadString(reader);
+                            reader.ReadBoolean();
+                            var count = reader.ReadInt32();
+                            for (var j = 0; j < count; j++)
+                            {
+                                string name;
+                                string file;
+                                int line;
+                                if (!TryParseTextIndexEntry(ReadString(reader), out name, out file, out line))
+                                {
+                                    continue;
+                                }
+
+                                HashSet<string> files;
+                                if (!result.TryGetValue(name, out files))
+                                {
+                                    files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                    result[name] = files;
+                                }
+
+                                files.Add(file);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _workspaceWarnings.Add("Failed to load token index " + path + ": " + ex.Message);
+                    }
+                }
+
                 _tokenDocumentIndex = result;
                 return result;
             }
-
-            for (var i = 0; i < _manifest.Assemblies.Count; i++)
-            {
-                var record = _manifest.Assemblies[i];
-                var path = Path.Combine(GetSnapshotDirectory(), record.TokenIndexFile);
-                if (!File.Exists(path))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                    using (var reader = new BinaryReader(stream, Encoding.UTF8))
-                    {
-                        ReadHeader(reader, TextIndexFormatKind);
-                        ReadString(reader);
-                        ReadString(reader);
-                        reader.ReadBoolean();
-                        var count = reader.ReadInt32();
-                        for (var j = 0; j < count; j++)
-                        {
-                            string name;
-                            string file;
-                            int line;
-                            if (!TryParseTextIndexEntry(ReadString(reader), out name, out file, out line))
-                            {
-                                continue;
-                            }
-
-                            HashSet<string> files;
-                            if (!result.TryGetValue(name, out files))
-                            {
-                                files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                result[name] = files;
-                            }
-
-                            files.Add(file);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _workspaceWarnings.Add("Failed to load token index " + path + ": " + ex.Message);
-                }
-            }
-
-            _tokenDocumentIndex = result;
-            return result;
         }
 
         private static void TryAddNameIndexEntry(List<CodeIndexItem> result, HashSet<string> seen, string assemblyName, string entry)
@@ -471,15 +755,7 @@ namespace AIBridgeCodeIndex
             }
 
             var normalized = query.Trim();
-            var items = _symbols
-                .Where(item => Contains(item.name, normalized)
-                               || Contains(item.container, normalized)
-                               || Contains(item.signature, normalized))
-                .OrderBy(item => ScoreSymbol(item, normalized))
-                .ThenBy(item => item.file, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(item => item.line)
-                .Take(MaxSymbolResults)
-                .ToList();
+            var items = SelectTopSymbols(_symbols, normalized);
 
             return BuildResponse(null, items);
         }
@@ -497,7 +773,9 @@ namespace AIBridgeCodeIndex
                 return syntaxResponse;
             }
 
-            EnsureSemanticWorkspaceLoaded();
+            AssemblySnapshot targetAssembly;
+            TryGetSnapshotSourceAssembly(parameters, out targetAssembly);
+            EnsureSemanticWorkspaceLoaded(targetAssembly, includeReverseDependencies: false);
             var document = ResolveDocument(parameters, out var sourceText, out var position);
             var semanticModel = await document.GetSemanticModelAsync();
             var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, _workspace);
@@ -516,7 +794,9 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> QueryReferencesAsync(Dictionary<string, object> parameters)
         {
-            EnsureSemanticWorkspaceLoaded();
+            AssemblySnapshot targetAssembly;
+            TryGetSnapshotSourceAssembly(parameters, out targetAssembly);
+            EnsureSemanticWorkspaceLoaded(targetAssembly, includeReverseDependencies: true);
             var document = ResolveDocument(parameters, out var sourceText, out var position);
             var semanticModel = await document.GetSemanticModelAsync();
             var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, _workspace);
@@ -606,10 +886,10 @@ namespace AIBridgeCodeIndex
                 return false;
             }
 
-            var matches = _symbols
-                .Where(item => string.Equals(item.name, token.ValueText, StringComparison.Ordinal))
-                .Take(2)
-                .ToList();
+            List<CodeIndexItem> nameMatches;
+            var matches = _symbolNameMap.TryGetValue(token.ValueText, out nameMatches)
+                ? nameMatches.Take(2).ToList()
+                : new List<CodeIndexItem>();
             if (matches.Count != 1)
             {
                 return false;
@@ -655,7 +935,7 @@ namespace AIBridgeCodeIndex
 
             if (_manifest == null)
             {
-                LoadSnapshotIndex();
+                EnsureSnapshotIndexLoaded();
             }
 
             if (!TryFindSnapshotSource(file, out assembly, out fullPath, out relativePath) || !File.Exists(fullPath))
@@ -689,23 +969,106 @@ namespace AIBridgeCodeIndex
             var requestedFullPath = Path.IsPathRooted(file)
                 ? Path.GetFullPath(file)
                 : Path.GetFullPath(Path.Combine(_projectRoot, file));
-            for (var i = 0; i < _manifest.Assemblies.Count; i++)
+
+            SourceSnapshotInfo sourceInfo;
+            if (_sourcePathMap != null && _sourcePathMap.TryGetValue(requestedFullPath, out sourceInfo))
             {
-                var record = _manifest.Assemblies[i];
-                for (var j = 0; j < record.Sources.Count; j++)
+                assembly = sourceInfo.Assembly;
+                fullPath = sourceInfo.FullPath;
+                relativePath = sourceInfo.RelativePath;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetSnapshotSourceAssembly(Dictionary<string, object> parameters, out AssemblySnapshot assembly)
+        {
+            return TryGetSnapshotSourceAssembly(GetString(parameters, "file"), out assembly);
+        }
+
+        private bool TryGetSnapshotSourceAssembly(string file, out AssemblySnapshot assembly)
+        {
+            assembly = null;
+            if (string.IsNullOrWhiteSpace(file))
+            {
+                return false;
+            }
+
+            EnsureSnapshotIndexLoaded();
+            string fullPath;
+            string relativePath;
+            return TryFindSnapshotSource(file, out assembly, out fullPath, out relativePath);
+        }
+
+        private void EnsureSemanticWorkspaceLoadedForTypeQuery(string typeName)
+        {
+            EnsureSnapshotIndexLoaded();
+            var requiredAssemblyIds = BuildTypeQueryAssemblyIds(typeName);
+            if (requiredAssemblyIds.Count == 0)
+            {
+                EnsureSemanticWorkspaceLoaded();
+                return;
+            }
+
+            EnsureSemanticWorkspaceLoaded(requiredAssemblyIds, loadAllAssemblies: false);
+        }
+
+        private HashSet<string> BuildTypeQueryAssemblyIds(string typeName)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var shortName = GetShortTypeName(typeName);
+            if (string.IsNullOrWhiteSpace(shortName) || _symbolNameMap == null)
+            {
+                return result;
+            }
+
+            List<CodeIndexItem> candidates;
+            if (!_symbolNameMap.TryGetValue(shortName, out candidates))
+            {
+                return result;
+            }
+
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var candidate = candidates[i];
+                AssemblySnapshot assembly;
+                string fullPath;
+                string relativePath;
+                if (candidate != null && TryFindSnapshotSource(candidate.file, out assembly, out fullPath, out relativePath))
                 {
-                    var sourceFullPath = ResolveAbsolutePath(record.Sources[j].Path);
-                    if (string.Equals(sourceFullPath, requestedFullPath, StringComparison.OrdinalIgnoreCase))
+                    var required = BuildRequiredAssemblyIds(assembly, includeReverseDependencies: true);
+                    foreach (var assemblyId in required)
                     {
-                        assembly = record;
-                        fullPath = sourceFullPath;
-                        relativePath = record.Sources[j].Path;
-                        return true;
+                        result.Add(assemblyId);
                     }
                 }
             }
 
-            return false;
+            return result;
+        }
+
+        private static string GetShortTypeName(string typeName)
+        {
+            if (string.IsNullOrWhiteSpace(typeName))
+            {
+                return null;
+            }
+
+            var normalized = typeName.Trim();
+            var lastDot = normalized.LastIndexOf('.');
+            if (lastDot >= 0 && lastDot + 1 < normalized.Length)
+            {
+                normalized = normalized.Substring(lastDot + 1);
+            }
+
+            var nestedSeparator = normalized.LastIndexOf('+');
+            if (nestedSeparator >= 0 && nestedSeparator + 1 < normalized.Length)
+            {
+                normalized = normalized.Substring(nestedSeparator + 1);
+            }
+
+            return normalized;
         }
 
         private static SyntaxToken FindTokenAtPosition(SyntaxNode root, SourceText sourceText, int position)
@@ -1165,8 +1528,14 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> QueryImplementationsAsync(Dictionary<string, object> parameters)
         {
-            EnsureSemanticWorkspaceLoaded();
-            var type = await ResolveTypeSymbolAsync(GetString(parameters, "type"));
+            var typeName = GetString(parameters, "type");
+            EnsureSemanticWorkspaceLoadedForTypeQuery(typeName);
+            var type = await ResolveTypeSymbolAsync(typeName);
+            if (type == null && !_loadedAllAssemblies)
+            {
+                EnsureSemanticWorkspaceLoaded();
+                type = await ResolveTypeSymbolAsync(typeName);
+            }
             var items = new List<CodeIndexItem>();
 
             if (type != null)
@@ -1187,8 +1556,14 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> QueryDerivedAsync(Dictionary<string, object> parameters)
         {
-            EnsureSemanticWorkspaceLoaded();
-            var type = await ResolveTypeSymbolAsync(GetString(parameters, "type"));
+            var typeName = GetString(parameters, "type");
+            EnsureSemanticWorkspaceLoadedForTypeQuery(typeName);
+            var type = await ResolveTypeSymbolAsync(typeName);
+            if (type == null && !_loadedAllAssemblies)
+            {
+                EnsureSemanticWorkspaceLoaded();
+                type = await ResolveTypeSymbolAsync(typeName);
+            }
             var items = new List<CodeIndexItem>();
 
             if (type != null)
@@ -1227,7 +1602,9 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> QueryCallersAsync(Dictionary<string, object> parameters)
         {
-            EnsureSemanticWorkspaceLoaded();
+            AssemblySnapshot targetAssembly;
+            TryGetSnapshotSourceAssembly(parameters, out targetAssembly);
+            EnsureSemanticWorkspaceLoaded(targetAssembly, includeReverseDependencies: true);
             var document = ResolveDocument(parameters, out var sourceText, out var position);
             var semanticModel = await document.GetSemanticModelAsync();
             var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, _workspace);
@@ -1255,8 +1632,24 @@ namespace AIBridgeCodeIndex
 
         private async Task<CodeIndexResponse> QueryDiagnosticsAsync(Dictionary<string, object> parameters)
         {
-            EnsureSemanticWorkspaceLoaded();
             var file = GetString(parameters, "file");
+            var all = GetBool(parameters, "all");
+            if (string.IsNullOrWhiteSpace(file) && !all)
+            {
+                throw new ArgumentException("Missing required parameter: --file. Use --all true to run full workspace diagnostics.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(file))
+            {
+                AssemblySnapshot targetAssembly;
+                TryGetSnapshotSourceAssembly(file, out targetAssembly);
+                EnsureSemanticWorkspaceLoaded(targetAssembly, includeReverseDependencies: false);
+            }
+            else
+            {
+                EnsureSemanticWorkspaceLoaded();
+            }
+
             var diagnostics = new List<Diagnostic>();
 
             if (!string.IsNullOrWhiteSpace(file))
@@ -1895,6 +2288,67 @@ namespace AIBridgeCodeIndex
             return string.Join(" | ", _workspaceWarnings.Take(5));
         }
 
+        private static List<CodeIndexItem> SelectTopSymbols(IEnumerable<CodeIndexItem> candidates, string query)
+        {
+            var result = new List<CodeIndexItem>();
+            if (candidates == null)
+            {
+                return result;
+            }
+
+            foreach (var item in candidates)
+            {
+                if (item == null
+                    || (!Contains(item.name, query) && !Contains(item.container, query) && !Contains(item.signature, query)))
+                {
+                    continue;
+                }
+
+                InsertTopSymbol(result, item, query);
+            }
+
+            return result;
+        }
+
+        private static void InsertTopSymbol(List<CodeIndexItem> result, CodeIndexItem item, string query)
+        {
+            var insertIndex = result.Count;
+            for (var i = 0; i < result.Count; i++)
+            {
+                if (CompareSymbolResult(item, result[i], query) < 0)
+                {
+                    insertIndex = i;
+                    break;
+                }
+            }
+
+            if (insertIndex < MaxSymbolResults)
+            {
+                result.Insert(insertIndex, item);
+                if (result.Count > MaxSymbolResults)
+                {
+                    result.RemoveAt(result.Count - 1);
+                }
+            }
+        }
+
+        private static int CompareSymbolResult(CodeIndexItem left, CodeIndexItem right, string query)
+        {
+            var score = ScoreSymbol(left, query).CompareTo(ScoreSymbol(right, query));
+            if (score != 0)
+            {
+                return score;
+            }
+
+            var file = string.Compare(left.file, right.file, StringComparison.OrdinalIgnoreCase);
+            if (file != 0)
+            {
+                return file;
+            }
+
+            return left.line.CompareTo(right.line);
+        }
+
         private static int ScoreSymbol(CodeIndexItem item, string query)
         {
             if (string.Equals(item.name, query, StringComparison.OrdinalIgnoreCase))
@@ -1977,6 +2431,23 @@ namespace AIBridgeCodeIndex
             return result;
         }
 
+        private static bool GetBool(Dictionary<string, object> parameters, string key)
+        {
+            if (parameters == null || !parameters.TryGetValue(key, out var value) || value == null)
+            {
+                return false;
+            }
+
+            if (value is bool boolValue)
+            {
+                return boolValue;
+            }
+
+            var text = Convert.ToString(value);
+            return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(text, "1", StringComparison.OrdinalIgnoreCase);
+        }
+
         private sealed class SnapshotManifest
         {
             public int SchemaVersion;
@@ -2019,6 +2490,13 @@ namespace AIBridgeCodeIndex
             public List<FileState> References = new List<FileState>();
             public List<string> ProjectReferenceAssemblyNames = new List<string>();
             public List<string> CompilerOptions = new List<string>();
+        }
+
+        private sealed class SourceSnapshotInfo
+        {
+            public AssemblySnapshot Assembly;
+            public string FullPath;
+            public string RelativePath;
         }
 
         private sealed class FileState

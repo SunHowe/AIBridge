@@ -661,6 +661,7 @@ namespace AIBridgeCLI.Commands
                 };
                 startInfo.ArgumentList.Add("--line-number");
                 startInfo.ArgumentList.Add("--column");
+                startInfo.ArgumentList.Add("--no-messages");
                 startInfo.ArgumentList.Add("--glob");
                 startInfo.ArgumentList.Add("*.cs");
                 startInfo.ArgumentList.Add("--fixed-strings");
@@ -674,14 +675,37 @@ namespace AIBridgeCLI.Commands
                     return null;
                 }
 
-                var output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-                if (process.ExitCode != 0 && string.IsNullOrWhiteSpace(output))
+                var items = new List<CodeIndexTextItem>();
+                while (items.Count < 100 && !process.StandardOutput.EndOfStream)
                 {
+                    CodeIndexTextItem item;
+                    if (TryParseRgLine(process.StandardOutput.ReadLine(), query, out item))
+                    {
+                        items.Add(item);
+                    }
+                }
+
+                if (items.Count >= 100 && !process.HasExited)
+                {
+                    process.Kill();
+                }
+
+                var exited = process.WaitForExit(5000);
+                if (!exited && !process.HasExited)
+                {
+                    process.Kill();
+                    process.WaitForExit(1000);
+                }
+
+                var exitCode = process.HasExited ? process.ExitCode : -1;
+                if (exitCode != 0 && items.Count == 0)
+                {
+                    process.Dispose();
                     return new List<CodeIndexTextItem>();
                 }
 
-                return ParseRgOutput(output, query);
+                process.Dispose();
+                return items;
             }
             catch
             {
@@ -706,34 +730,52 @@ namespace AIBridgeCLI.Commands
                     break;
                 }
 
-                var first = line.IndexOf(':');
-                var second = first < 0 ? -1 : line.IndexOf(':', first + 1);
-                var third = second < 0 ? -1 : line.IndexOf(':', second + 1);
-                if (first <= 0 || second <= first || third <= second)
+                CodeIndexTextItem item;
+                if (TryParseRgLine(line, query, out item))
                 {
-                    continue;
+                    items.Add(item);
                 }
-
-                int.TryParse(line.Substring(first + 1, second - first - 1), out var row);
-                int.TryParse(line.Substring(second + 1, third - second - 1), out var column);
-                items.Add(new CodeIndexTextItem
-                {
-                    kind = "text",
-                    name = query,
-                    file = NormalizePath(line.Substring(0, first)),
-                    line = row,
-                    column = column,
-                    preview = TrimPreview(line.Substring(third + 1))
-                });
             }
 
             return items;
         }
 
+        private static bool TryParseRgLine(string line, string query, out CodeIndexTextItem item)
+        {
+            item = null;
+            if (string.IsNullOrEmpty(line))
+            {
+                return false;
+            }
+
+            var first = line.IndexOf(':');
+            var second = first < 0 ? -1 : line.IndexOf(':', first + 1);
+            var third = second < 0 ? -1 : line.IndexOf(':', second + 1);
+            if (first <= 0 || second <= first || third <= second)
+            {
+                return false;
+            }
+
+            int row;
+            int column;
+            int.TryParse(line.Substring(first + 1, second - first - 1), out row);
+            int.TryParse(line.Substring(second + 1, third - second - 1), out column);
+            item = new CodeIndexTextItem
+            {
+                kind = "text",
+                name = query,
+                file = NormalizePath(line.Substring(0, first)),
+                line = row,
+                column = column,
+                preview = TrimPreview(line.Substring(third + 1))
+            };
+            return true;
+        }
+
         private static List<CodeIndexTextItem> RunTextFallback(string projectRoot, string query)
         {
             var items = new List<CodeIndexTextItem>();
-            foreach (var file in Directory.EnumerateFiles(projectRoot, "*.cs", SearchOption.AllDirectories))
+            foreach (var file in EnumerateFallbackFiles(projectRoot))
             {
                 if (items.Count >= 100)
                 {
@@ -775,10 +817,74 @@ namespace AIBridgeCLI.Commands
             return items;
         }
 
+        private static IEnumerable<string> EnumerateFallbackFiles(string projectRoot)
+        {
+            var pending = new Stack<string>();
+            pending.Push(projectRoot);
+            while (pending.Count > 0)
+            {
+                var directory = pending.Pop();
+                if (ShouldSkipFallbackDirectory(projectRoot, directory))
+                {
+                    continue;
+                }
+
+                IEnumerable<string> files;
+                try
+                {
+                    files = Directory.EnumerateFiles(directory, "*.cs", SearchOption.TopDirectoryOnly);
+                }
+                catch
+                {
+                    files = Array.Empty<string>();
+                }
+
+                foreach (var file in files)
+                {
+                    yield return file;
+                }
+
+                IEnumerable<string> directories;
+                try
+                {
+                    directories = Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly);
+                }
+                catch
+                {
+                    directories = Array.Empty<string>();
+                }
+
+                foreach (var child in directories)
+                {
+                    if (!ShouldSkipFallbackDirectory(projectRoot, child))
+                    {
+                        pending.Push(child);
+                    }
+                }
+            }
+        }
+
         private static bool ShouldSkipFallbackFile(string projectRoot, string file)
         {
             var relative = MakeRelativePath(projectRoot, file).Replace('\\', '/');
             return relative.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith("Library/", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith("Temp/", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith(".aibridge/code-index/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldSkipFallbackDirectory(string projectRoot, string directory)
+        {
+            var relative = MakeRelativePath(projectRoot, directory).Replace('\\', '/').TrimEnd('/');
+            return string.Equals(relative, ".git", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "Library", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "Temp", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "obj", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, "bin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(relative, ".aibridge/code-index", StringComparison.OrdinalIgnoreCase)
+                || relative.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
                 || relative.StartsWith("Library/", StringComparison.OrdinalIgnoreCase)
                 || relative.StartsWith("Temp/", StringComparison.OrdinalIgnoreCase)
                 || relative.StartsWith("obj/", StringComparison.OrdinalIgnoreCase)
@@ -960,6 +1066,17 @@ namespace AIBridgeCLI.Commands
             return context == null || context.FallbackToTextSearch;
         }
 
+        private static bool ResolveOptionBool(Dictionary<string, string> options, string key, bool defaultValue)
+        {
+            if (options == null || !options.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                return defaultValue;
+            }
+
+            return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
+                   && !string.Equals(value, "0", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static Dictionary<string, object> BuildQueryParameters(string action, Dictionary<string, string> options)
         {
             var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -983,6 +1100,7 @@ namespace AIBridgeCLI.Commands
                     result["file"] = file;
                 }
 
+                result["all"] = ResolveOptionBool(options, "all", false);
                 return result;
             }
 
@@ -1017,6 +1135,13 @@ namespace AIBridgeCLI.Commands
 
             if (string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
             {
+                var hasFile = options.TryGetValue("file", out var file) && !string.IsNullOrWhiteSpace(file);
+                var all = ResolveOptionBool(options, "all", false);
+                if (!hasFile && !all)
+                {
+                    throw new ArgumentException("Missing required parameter: --file. Use --all true to run full workspace diagnostics.");
+                }
+
                 return;
             }
 
