@@ -969,9 +969,9 @@ namespace AIBridge.Editor
             try
             {
                 // 启动/自动刷新降低后台线程优先级，减少与 Editor 主流程争抢 CPU。
-                if (originalPriority > ThreadPriority.BelowNormal)
+                if (originalPriority > System.Threading.ThreadPriority.BelowNormal)
                 {
-                    thread.Priority = ThreadPriority.BelowNormal;
+                    thread.Priority = System.Threading.ThreadPriority.BelowNormal;
                 }
             }
             catch
