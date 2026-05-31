@@ -22,7 +22,7 @@
 | Unity Editor | 编译、资源、场景、Prefab、Inspector、日志任务 | `$CLI compile unity` 或目标命令结果 | 不用 `dotnet build` 冒充 Unity 编译；报告 Unity 未验证 |
 | Code Index | C# 符号、定义、引用、调用者、诊断查询 | `$CLI code_index status` | 使用 `rg` 和直接文件读取 |
 | Runtime target | Runtime、Player、Play Mode、UI、性能任务 | `$CLI runtime list_targets`，再选 target | 只给静态或 Editor 结论，Runtime 状态标记未验证 |
-| Workflow run | recipe、长任务、跨 turn 任务 | `$CLI workflow status` 或 active run | 新建 run 前说明未发现可恢复状态 |
+| Workflow run | recipe、长任务、跨 turn 任务 | 从用户、上一轮输出或 `.aibridge/workflows/active-run.json` 确认 run id 后执行 `$CLI workflow status --run <runId>` | 新建 run 前说明未发现可恢复状态 |
 | 外部执行器 | `agent` / `manual` step、多 agent 协作 | 当前 harness 是否能创建子任务或人工步骤 | 导出 task pack 或由主 agent 执行并 `workflow import` |
 
 ## 输出规则
@@ -69,7 +69,7 @@ $CLI harness status --include-snapshot true
 
 ## Resume 规则
 
-- 长任务或 workflow recipe 任务开始前，优先查 active run 或用户提供的 run id。
+- 长任务或 workflow recipe 任务开始前，优先从 active-run 指针或用户输入确认 run id。
 - 继续已有 run 时，先读取 `workflow status --run <runId>`，再根据缺失 gate 或 skipped step 决定下一步。
 - 不使用明显过期的日志、截图、Runtime target 或 command result 支撑新结论；必要时重新采集。
 - `workflow finish --status passed` 前必须刷新 gate/report；required gate 缺失时不能标记通过。

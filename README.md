@@ -151,8 +151,9 @@ $CLI get_logs --logType Error --count 50 --workflow-run wf_20260529_213000_ab12c
 $CLI runtime screenshot --target latest --workflow-run wf_20260529_213000_ab12cd34
 $CLI workflow import --run wf_20260529_213000_ab12cd34 --step adversarial-verify --schema Verdict --file verdicts.json
 $CLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports
-$CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json"
+$CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
 $CLI workflow run-cli --recipe unity-sharded-review --allow-partial true
+$CLI workflow run-cli --recipe unity-sharded-review --resume wf_20260529_213000_ab12cd34 --rerun failed
 $CLI workflow status --run wf_20260529_213000_ab12cd34
 $CLI workflow report --run wf_20260529_213000_ab12cd34 --format markdown
 $CLI workflow finish --run wf_20260529_213000_ab12cd34 --status passed
@@ -164,7 +165,7 @@ Built-in recipes include `unity-change-implementation`, `unity-sharded-review`, 
 
 `runtime-debug-investigation` is for investigating Runtime, Player, Play Mode, UI, log, or performance symptoms. It checks evidence completeness first and does not treat Runtime errors themselves as workflow failure conditions; once a root cause is confirmed and a fix is requested, hand off to an implementation workflow.
 
-`workflow begin` creates an active run; ordinary commands can attach evidence with `--workflow-run`, `AIBRIDGE_WORKFLOW_RUN_ID`, or the active run pointer. `workflow import` stores structured external results such as `Verdict`, and `externalVerdict` gates only pass from imported artifacts. `workflow export` writes handoff packages for external tools; it is an exporter, not an embedded LLM runtime. `partial` workflow status is not treated as CLI success unless `--allow-partial true` is passed explicitly.
+`workflow begin` creates an active run; ordinary commands can attach evidence with `--workflow-run`, `AIBRIDGE_WORKFLOW_RUN_ID`, or the active run pointer. `workflow status` and `workflow report` always require explicit `--run`; read `.aibridge/workflows/active-run.json` first when you need the active run id. `workflow run-cli --resume <runId>` resumes an existing run but still requires `--recipe` or `--file` so the CLI can load the recipe definition. Prefer a JSON file path for `--inputs`; inline JSON is fragile in PowerShell. `workflow import` stores structured external results such as `Verdict`, and `externalVerdict` gates only pass from imported artifacts. `workflow export` writes handoff packages for external tools; it is an exporter, not an embedded LLM runtime. `partial` workflow status is not treated as CLI success unless `--allow-partial true` is passed explicitly.
 
 Workflow cleanup is conservative by default: `clean` starts in dry-run mode. Auto cleanup is enabled only when saved in `.aibridge/workflows/settings.json`; `run-cli` then removes old runs before starting while preserving failed/blocked runs, the active run, and the newest retained runs according to settings.
 

@@ -71,7 +71,7 @@ Large outputs should be saved as artifacts and referenced by path or id instead 
 
 ## Resume And Active Runs
 
-- For a resumed workflow task, check `workflow status --run <runId>` or the active run before continuing.
+- For a resumed workflow task, identify the run id from the user, prior output, or `.aibridge/workflows/active-run.json`, then check `workflow status --run <runId>` before continuing.
 - Use existing artifact ids and gate status to decide the next missing step; do not repeat expensive collection unless evidence is stale or incomplete.
 - Re-collect logs, screenshots, Runtime status, or perf samples when the target state may have changed.
 - Before `workflow finish --status passed`, refresh gates/report and ensure required gates are not missing, failed, or blocked.

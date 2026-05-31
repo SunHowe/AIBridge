@@ -130,7 +130,7 @@ namespace AIBridgeCLI.Commands
 
         private static int ExecuteRunCli(Dictionary<string, string> options, int timeoutMs, OutputMode outputMode)
         {
-            var recipePath = GetFileOrRecipe(options);
+            var recipePath = GetFileOrRecipe(options, "Missing required option: --file or --recipe. workflow run-cli --resume <runId> still requires a recipe path or recipe name.");
             recipePath = WorkflowPathHelper.ResolveRecipePath(recipePath);
             var inputs = GetOption(options, "inputs", null);
             var resume = GetOption(options, "resume", null);
@@ -477,7 +477,7 @@ namespace AIBridgeCLI.Commands
             return result;
         }
 
-        private static string GetFileOrRecipe(Dictionary<string, string> options)
+        private static string GetFileOrRecipe(Dictionary<string, string> options, string missingMessage = null)
         {
             if (options.TryGetValue("file", out var file) && !string.IsNullOrWhiteSpace(file))
             {
@@ -489,7 +489,7 @@ namespace AIBridgeCLI.Commands
                 return recipe;
             }
 
-            throw new ArgumentException("Missing required option: --file or --recipe.");
+            throw new ArgumentException(missingMessage ?? "Missing required option: --file or --recipe.");
         }
 
         private static string GetRunId(Dictionary<string, string> options, bool required)

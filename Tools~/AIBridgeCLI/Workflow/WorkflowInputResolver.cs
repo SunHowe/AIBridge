@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace AIBridgeCLI.Workflow
@@ -56,13 +57,40 @@ namespace AIBridgeCLI.Workflow
                 return new JObject();
             }
 
+            if (LooksLikeJson(inputsValue))
+            {
+                return ParseInputsJson(inputsValue, "inline JSON");
+            }
+
             var resolved = WorkflowPathHelper.ResolvePath(inputsValue);
             if (File.Exists(resolved))
             {
-                return JObject.Parse(File.ReadAllText(resolved));
+                return ParseInputsJson(File.ReadAllText(resolved), "file: " + resolved);
             }
 
-            return JObject.Parse(inputsValue);
+            return ParseInputsJson(inputsValue, "inline JSON");
+        }
+
+        private static JObject ParseInputsJson(string value, string source)
+        {
+            try
+            {
+                return JObject.Parse(value);
+            }
+            catch (JsonReaderException ex)
+            {
+                throw new ArgumentException(
+                    "Failed to parse --inputs from " + source + ". Prefer passing a JSON file path, especially in PowerShell. JSON parse error: " + ex.Message,
+                    ex);
+            }
+        }
+
+        private static bool LooksLikeJson(string value)
+        {
+            // 内联 JSON 先解析，避免 Windows 路径解析被 JSON 标点提前打断。
+            var trimmed = value == null ? null : value.TrimStart();
+            return !string.IsNullOrEmpty(trimmed)
+                && (trimmed[0] == '{' || trimmed[0] == '[');
         }
 
         private static JToken ReadDefaultValue(JToken inputDefinition)

@@ -48,7 +48,7 @@ namespace AIBridgeCLI.Commands
             {
                 new ParameterInfo("file", "Workflow recipe path or name", false),
                 new ParameterInfo("recipe", "Built-in or project recipe name", false),
-                new ParameterInfo("inputs", "JSON object or path to inputs JSON", false)
+                new ParameterInfo("inputs", "Inputs JSON file path. Inline JSON is supported but fragile in PowerShell", false)
             },
             ["attach"] = new List<ParameterInfo>
             {
@@ -63,10 +63,10 @@ namespace AIBridgeCLI.Commands
             },
             ["run-cli"] = new List<ParameterInfo>
             {
-                new ParameterInfo("file", "Workflow recipe path or name", false),
-                new ParameterInfo("recipe", "Built-in or project recipe name", false),
-                new ParameterInfo("inputs", "JSON object or path to inputs JSON", false),
-                new ParameterInfo("resume", "Existing run id to resume", false),
+                new ParameterInfo("file", "Workflow recipe path or name. Required unless --recipe is provided", false),
+                new ParameterInfo("recipe", "Built-in or project recipe name. Required unless --file is provided", false),
+                new ParameterInfo("inputs", "Inputs JSON file path. Inline JSON is supported but fragile in PowerShell", false),
+                new ParameterInfo("resume", "Existing run id to resume. Still requires --file or --recipe", false),
                 new ParameterInfo("rerun", "Rerun mode, e.g. failed", false),
                 new ParameterInfo("timeout", "Per-step CLI command timeout in milliseconds", false, "5000"),
                 new ParameterInfo("allow-partial", "Treat partial workflow status as CLI success", false, "false"),
@@ -90,12 +90,12 @@ namespace AIBridgeCLI.Commands
             },
             ["status"] = new List<ParameterInfo>
             {
-                new ParameterInfo("run", "Workflow run id", true),
+                new ParameterInfo("run", "Workflow run id. Required; status does not default to active run", true),
                 new ParameterInfo("detail", "Output detail: compact, full", false, "compact")
             },
             ["report"] = new List<ParameterInfo>
             {
-                new ParameterInfo("run", "Workflow run id", true),
+                new ParameterInfo("run", "Workflow run id. Required; report does not default to active run", true),
                 new ParameterInfo("format", "Output format: json, markdown", false, "json"),
                 new ParameterInfo("detail", "Output detail for json: compact, full", false, "compact")
             },
@@ -131,11 +131,18 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("  AIBridgeCLI workflow import --run wf_20260529_213000_ab12cd34 --step adversarial-verify --schema Verdict --file verdicts.json");
             sb.AppendLine("  AIBridgeCLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports");
             sb.AppendLine("  AIBridgeCLI workflow finish --run wf_20260529_213000_ab12cd34 --status passed");
-            sb.AppendLine("  AIBridgeCLI workflow run-cli --file .aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json");
+            sb.AppendLine("  AIBridgeCLI workflow run-cli --file .aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json --inputs .aibridge/workflows/inputs.json");
             sb.AppendLine("  AIBridgeCLI workflow run-cli --recipe unity-sharded-review --allow-partial true");
+            sb.AppendLine("  AIBridgeCLI workflow run-cli --recipe unity-sharded-review --resume wf_20260529_213000_ab12cd34 --rerun failed");
+            sb.AppendLine("  AIBridgeCLI workflow status --run wf_20260529_213000_ab12cd34");
             sb.AppendLine("  AIBridgeCLI workflow report --run wf_20260529_213000_ab12cd34 --format markdown");
             sb.AppendLine("  AIBridgeCLI workflow clean --older-than 3d --dry-run false --keep-failed true --keep-latest 20");
             sb.AppendLine("  AIBridgeCLI workflow clean --older-than 3d --save-settings true --auto-clean true");
+            sb.AppendLine();
+            sb.AppendLine("Notes:");
+            sb.AppendLine("  workflow status/report require --run; read .aibridge/workflows/active-run.json first if you need the active run id.");
+            sb.AppendLine("  workflow run-cli --resume <runId> still requires --file or --recipe.");
+            sb.AppendLine("  Prefer a JSON file path for --inputs; inline JSON is fragile in PowerShell.");
             return sb.ToString();
         }
     }

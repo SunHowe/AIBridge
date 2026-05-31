@@ -23,6 +23,7 @@ $CLI workflow init --recipe runtime-ui-validation
 $CLI workflow begin --recipe unity-change-implementation
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
 $CLI workflow run-cli --recipe unity-sharded-review --allow-partial true
+$CLI workflow run-cli --recipe unity-sharded-review --resume <runId> --rerun failed
 $CLI harness status
 $CLI get_logs --logType Error --workflow-run <runId>
 $CLI runtime screenshot --target latest --workflow-run <runId>
@@ -37,9 +38,9 @@ $CLI workflow clean --older-than 3d --dry-run false --keep-failed true --keep-la
 $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 ```
 
-`run-cli` executes only deterministic `cli`, `barrier`, and `report` steps. It records `agent` and `manual` steps as `skipped_requires_external_executor`; external tools such as Codex, Claude, or Cursor remain responsible for those steps. `partial` is not a CLI success unless `--allow-partial true` is passed explicitly.
+`run-cli` executes only deterministic `cli`, `barrier`, and `report` steps. It records `agent` and `manual` steps as `skipped_requires_external_executor`; external tools such as Codex, Claude, or Cursor remain responsible for those steps. `workflow run-cli --resume <runId>` still requires `--file` or `--recipe`; resume selects the existing run, while file/recipe selects the recipe definition to execute. `partial` is not a CLI success unless `--allow-partial true` is passed explicitly.
 
-`begin` creates a run and writes `.aibridge/workflows/active-run.json`. Ordinary commands attach evidence when they receive `--workflow-run <runId>`, when `AIBRIDGE_WORKFLOW_RUN_ID` is set, or when an active run exists. `finish` refreshes gates/report and clears the active run pointer. `finish --status passed` is downgraded when required gates are failed, blocked, or missing evidence.
+`begin` creates a run and writes `.aibridge/workflows/active-run.json`. Ordinary commands attach evidence when they receive `--workflow-run <runId>`, when `AIBRIDGE_WORKFLOW_RUN_ID` is set, or when an active run exists. `workflow status` and `workflow report` do not default to the active run; pass `--run <runId>` explicitly, reading `.aibridge/workflows/active-run.json` first when needed. `finish` refreshes gates/report and clears the active run pointer. `finish --status passed` is downgraded when required gates are failed, blocked, or missing evidence.
 
 `import` copies structured external results into run artifacts. `Verdict.status` must be `confirmed`, `refuted`, or `uncertain`; `externalVerdict` gates pass only from imported Verdict artifacts, not from prose summaries. `ValidationResult` imports use the `validation-report` artifact kind by default.
 
@@ -125,7 +126,7 @@ Allowed `kind` values:
 - `barrier`: lightweight merge/check step; recorded as passed by `run-cli`.
 - `report`: final reporting step; recorded as passed by `run-cli`.
 
-Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the merged recipe defaults plus `--inputs`.
+Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the merged recipe defaults plus `--inputs`. Prefer passing `--inputs` as a JSON file path; inline JSON is shell-quoting sensitive, especially in PowerShell.
 
 ## ArtifactRef
 
