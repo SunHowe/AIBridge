@@ -247,6 +247,14 @@ namespace AIBridgeCodeIndex
                         return;
                     }
 
+                    if (request.Method == "POST" && request.Path == "/batch")
+                    {
+                        var batch = JsonConvert.DeserializeObject<CodeIndexBatchRequest>(request.BodyText);
+                        var response = await ExecuteBatchAsync(batch);
+                        await WriteResponseAsync(stream, response.success ? 200 : 409, response);
+                        return;
+                    }
+
                     if (request.Method == "POST" && request.Path == "/shutdown")
                     {
                         UpdateStatus("stopping", null);
@@ -275,6 +283,21 @@ namespace AIBridgeCodeIndex
         private async Task<CodeIndexResponse> ExecuteQueryAsync(CodeIndexRequest query)
         {
             return await _queryScheduler.EnqueueAsync(query, CancellationToken.None);
+        }
+
+        private async Task<CodeIndexResponse> ExecuteBatchAsync(CodeIndexBatchRequest batch)
+        {
+            var parameters = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["batch"] = batch
+            };
+            return await _queryScheduler.EnqueueAsync(new CodeIndexRequest
+            {
+                action = "batch",
+                parameters = parameters,
+                queueTimeoutMs = batch == null ? 0 : batch.queueTimeoutMs,
+                executeTimeoutMs = batch == null ? 0 : batch.executeTimeoutMs
+            }, CancellationToken.None);
         }
 
         private async Task<CodeIndexResponse> ExecuteScheduledQueryAsync(CodeIndexRequest query, CancellationToken cancellationToken)
@@ -313,11 +336,170 @@ namespace AIBridgeCodeIndex
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            var response = string.Equals(query.action, "batch", StringComparison.OrdinalIgnoreCase)
+                ? await ExecuteBatchCoreAsync(query, workspace, status, cancellationToken)
+                : await ExecuteSingleWorkspaceQueryAsync(query, workspace, status, cancellationToken);
+
+            WriteStatus();
+            if (refreshNeeded)
+            {
+                ScheduleBackgroundRefresh();
+            }
+
+            return response;
+        }
+
+        private async Task<CodeIndexResponse> ExecuteSingleWorkspaceQueryAsync(
+            CodeIndexRequest query,
+            CodeIndexWorkspace workspace,
+            CodeIndexStatus status,
+            CancellationToken cancellationToken)
+        {
             var response = await workspace.QueryAsync(query.action, query.parameters);
             cancellationToken.ThrowIfCancellationRequested();
-            response.success = true;
+            PopulateWorkspaceResponse(response, workspace, status);
+            UpdateStatusFromWorkspace(workspace);
+            return response;
+        }
+
+        private async Task<CodeIndexResponse> ExecuteBatchCoreAsync(
+            CodeIndexRequest query,
+            CodeIndexWorkspace workspace,
+            CodeIndexStatus status,
+            CancellationToken cancellationToken)
+        {
+            var batch = ExtractBatchRequest(query);
+            if (batch == null || batch.items == null || batch.items.Count == 0)
+            {
+                return BuildFailure(status, "Batch request must contain at least one item.", "invalid_batch");
+            }
+
+            if (batch.items.Count > 100)
+            {
+                return BuildFailure(status, "Batch request item count exceeds the 100 item limit.", "batch_too_large");
+            }
+
+            var results = new List<CodeIndexBatchResponseItem>();
+            var allSuccess = true;
+            var continueOnError = batch.continueOnError.HasValue ? batch.continueOnError.Value : true;
+
+            // batch 作为一个调度请求执行；子项只复用当前 worker，不重新进入 daemon 队列。
+            for (var i = 0; i < batch.items.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var item = batch.items[i];
+                var itemResult = await ExecuteBatchItemAsync(i, item, workspace, cancellationToken);
+                results.Add(itemResult);
+                if (!itemResult.success)
+                {
+                    allSuccess = false;
+                    if (!continueOnError)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            var response = new CodeIndexResponse
+            {
+                success = allSuccess,
+                semantic = true,
+                source = "unity-snapshot-batch",
+                state = status.state,
+                stale = status.stale,
+                projectRoot = status.projectRoot,
+                results = results,
+                error = allSuccess ? null : "One or more batch items failed.",
+                errorCode = allSuccess ? null : "batch_item_failed"
+            };
+            PopulateWorkspaceResponse(response, workspace, status);
+            UpdateStatusFromWorkspace(workspace);
+            return response;
+        }
+
+        private async Task<CodeIndexBatchResponseItem> ExecuteBatchItemAsync(
+            int index,
+            CodeIndexBatchRequestItem item,
+            CodeIndexWorkspace workspace,
+            CancellationToken cancellationToken)
+        {
+            var action = item == null ? null : item.action;
+            if (string.IsNullOrWhiteSpace(action))
+            {
+                return BuildBatchFailure(index, action, "Missing action.", "missing_action", 0);
+            }
+
+            action = action.Trim().ToLowerInvariant();
+            if (string.Equals(action, "batch", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildBatchFailure(index, action, "Nested code_index batch requests are not supported.", "nested_batch", 0);
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                var response = await workspace.QueryAsync(action, item.parameters);
+                cancellationToken.ThrowIfCancellationRequested();
+                return new CodeIndexBatchResponseItem
+                {
+                    index = index,
+                    action = action,
+                    success = true,
+                    semantic = true,
+                    source = "unity-snapshot",
+                    warning = response.warning,
+                    queuedMs = 0,
+                    executionMs = stopwatch.ElapsedMilliseconds,
+                    items = response.items
+                };
+            }
+            catch (Exception ex)
+            {
+                return BuildBatchFailure(index, action, ex.Message, "execute_failed", stopwatch.ElapsedMilliseconds);
+            }
+        }
+
+        private static CodeIndexBatchResponseItem BuildBatchFailure(int index, string action, string error, string errorCode, long executionMs)
+        {
+            return new CodeIndexBatchResponseItem
+            {
+                index = index,
+                action = action,
+                success = false,
+                semantic = false,
+                source = "unity-snapshot",
+                error = error,
+                errorCode = errorCode,
+                queuedMs = 0,
+                executionMs = executionMs
+            };
+        }
+
+        private static CodeIndexBatchRequest ExtractBatchRequest(CodeIndexRequest query)
+        {
+            if (query == null || query.parameters == null)
+            {
+                return null;
+            }
+
+            object value;
+            if (!query.parameters.TryGetValue("batch", out value))
+            {
+                return null;
+            }
+
+            return value as CodeIndexBatchRequest;
+        }
+
+        private static void PopulateWorkspaceResponse(CodeIndexResponse response, CodeIndexWorkspace workspace, CodeIndexStatus status)
+        {
+            response.success = response.error == null;
             response.semantic = true;
-            response.source = "unity-snapshot";
+            if (string.IsNullOrWhiteSpace(response.source))
+            {
+                response.source = "unity-snapshot";
+            }
+
             response.state = status.state;
             response.stale = status.stale;
             response.projectRoot = status.projectRoot;
@@ -337,6 +519,10 @@ namespace AIBridgeCodeIndex
             response.staleReason = workspace.StaleReason;
             response.loadedProjects = workspace.LoadedProjects;
             response.loadedDocuments = workspace.LoadedDocuments;
+        }
+
+        private void UpdateStatusFromWorkspace(CodeIndexWorkspace workspace)
+        {
             lock (_statusLock)
             {
                 _status.snapshotExists = workspace.SnapshotExists;
@@ -355,14 +541,6 @@ namespace AIBridgeCodeIndex
                 _status.loadedDocuments = workspace.LoadedDocuments;
                 _status.updatedAt = DateTimeOffset.Now.ToString("o");
             }
-
-            WriteStatus();
-            if (refreshNeeded)
-            {
-                ScheduleBackgroundRefresh();
-            }
-
-            return response;
         }
 
         private CodeIndexResponse BuildScheduledFailure(string errorCode, string error)

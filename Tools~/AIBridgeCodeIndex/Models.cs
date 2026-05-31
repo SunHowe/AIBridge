@@ -95,6 +95,7 @@ namespace AIBridgeCodeIndex
         public long totalTimedOut { get; set; }
         public long totalDeduplicated { get; set; }
         public List<CodeIndexItem> items { get; set; }
+        public List<CodeIndexBatchResponseItem> results { get; set; }
 
         public static CodeIndexResponse FromStatus(CodeIndexStatus status)
         {
@@ -150,5 +151,36 @@ namespace AIBridgeCodeIndex
         public string severity { get; set; }
         public string id { get; set; }
         public string message { get; set; }
+    }
+
+    internal sealed class CodeIndexBatchRequest
+    {
+        public List<CodeIndexBatchRequestItem> items { get; set; }
+        public bool timing { get; set; }
+        public bool? continueOnError { get; set; }
+        public int queueTimeoutMs { get; set; }
+        public int executeTimeoutMs { get; set; }
+    }
+
+    internal sealed class CodeIndexBatchRequestItem
+    {
+        public string action { get; set; }
+        public Dictionary<string, object> parameters { get; set; }
+        public int executeTimeoutMs { get; set; }
+    }
+
+    internal sealed class CodeIndexBatchResponseItem
+    {
+        public int index { get; set; }
+        public string action { get; set; }
+        public bool success { get; set; }
+        public bool semantic { get; set; }
+        public string source { get; set; }
+        public string warning { get; set; }
+        public string error { get; set; }
+        public string errorCode { get; set; }
+        public long queuedMs { get; set; }
+        public long executionMs { get; set; }
+        public List<CodeIndexItem> items { get; set; }
     }
 }

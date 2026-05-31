@@ -34,6 +34,7 @@ namespace AIBridgeCLI.Commands
         private const int DefaultQueryQueueTimeoutMs = 60000;
         private const int QueryTransportPaddingMs = 1000;
         private const int MaxCodeIndexTimeoutMs = 600000;
+        private const int MaxBatchItems = 100;
         private const string SnapshotMagic = "AIBCI";
         private const string DisabledMessage = "Code Index is disabled in AIBridge settings. Enable AIBridge > Settings > Code Index > Enable Code Index, or use rg and normal file reads.";
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
@@ -90,6 +91,8 @@ namespace AIBridgeCLI.Commands
                 case "callers":
                 case "diagnostics":
                     return await QueryAsync(context, normalizedAction, options, timeout);
+                case "batch":
+                    return await BatchAsync(context, options, timeout);
                 default:
                     return BuildFailure(context, "Unsupported code_index action: " + action);
             }
@@ -129,6 +132,8 @@ namespace AIBridgeCLI.Commands
                     return ResolveOptionBool(options, "all", false)
                         ? DefaultFullDiagnosticsTimeoutMs
                         : DefaultHeavyQueryTimeoutMs;
+                case "batch":
+                    return DefaultHeavyQueryTimeoutMs;
                 default:
                     return ClampTimeout(timeout);
             }
@@ -250,6 +255,189 @@ namespace AIBridgeCLI.Commands
                     return false;
                 default:
                     return true;
+            }
+        }
+
+        private static async Task<JObject> BatchAsync(CodeIndexContext context, Dictionary<string, string> options, int timeout)
+        {
+            var payload = ReadBatchPayload(context, options);
+            if (payload.Value<bool?>("success") == false)
+            {
+                return payload;
+            }
+
+            var items = payload["items"] as JArray;
+            if (items == null || items.Count == 0)
+            {
+                return BuildFailure(context, "Batch request must contain a non-empty items array.", "invalid_batch");
+            }
+
+            if (items.Count > MaxBatchItems)
+            {
+                return BuildFailure(context, "Batch request item count exceeds the " + MaxBatchItems.ToString(CultureInfo.InvariantCulture) + " item limit.", "batch_too_large");
+            }
+
+            var status = await EnsureDaemonAsync(context, timeout, false);
+            if (!IsReady(status))
+            {
+                return BuildFailure(context, "Unity snapshot workspace is not ready.", "workspace_not_ready");
+            }
+
+            var batchTimeouts = ResolveBatchTimeouts(payload, options, timeout);
+            PrepareBatchPayload(payload, items, options, batchTimeouts);
+
+            try
+            {
+                var response = await PostJsonAsync(
+                    status.Value<string>("endpoint"),
+                    "batch",
+                    status.Value<string>("token"),
+                    payload,
+                    batchTimeouts.TransportTimeoutMs);
+                response["enabled"] = context.Enabled;
+                return response;
+            }
+            catch (TaskCanceledException)
+            {
+                return BuildFailure(
+                    context,
+                    "code_index batch timed out after " + batchTimeouts.TransportTimeoutMs.ToString(CultureInfo.InvariantCulture)
+                    + "ms before the daemon returned a batch result.",
+                    "http_timeout");
+            }
+            catch (HttpRequestException ex)
+            {
+                return BuildFailure(context, "Code index daemon is not reachable: " + ex.Message, "daemon_unreachable");
+            }
+            catch (JsonException ex)
+            {
+                return BuildFailure(context, "Code index daemon returned invalid JSON: " + ex.Message, "invalid_daemon_response");
+            }
+        }
+
+        private static JObject ReadBatchPayload(CodeIndexContext context, Dictionary<string, string> options)
+        {
+            var json = ResolveStringOption(options, "json", null);
+            if (string.IsNullOrWhiteSpace(json) && options != null && options.ContainsKey("stdin"))
+            {
+                json = Console.In.ReadToEnd();
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return BuildFailure(context, "Missing batch payload. Pass --stdin with JSON input or --json.", "missing_batch_payload");
+            }
+
+            try
+            {
+                var payload = JObject.Parse(json);
+                return payload;
+            }
+            catch (JsonException ex)
+            {
+                return BuildFailure(context, "Invalid batch JSON: " + ex.Message, "invalid_batch_json");
+            }
+        }
+
+        private static void PrepareBatchPayload(
+            JObject payload,
+            JArray items,
+            Dictionary<string, string> options,
+            CodeIndexQueryTimeouts batchTimeouts)
+        {
+            if (payload["continueOnError"] == null)
+            {
+                payload["continueOnError"] = ResolveOptionBool(options, "continue-on-error", true);
+            }
+
+            if (payload["timing"] == null)
+            {
+                payload["timing"] = ResolveOptionBool(options, "timing", true);
+            }
+
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i] as JObject;
+                if (item == null)
+                {
+                    continue;
+                }
+
+                if (item["executeTimeoutMs"] == null)
+                {
+                    item["executeTimeoutMs"] = ResolveBatchItemTimeout(item);
+                }
+            }
+
+            payload["queueTimeoutMs"] = batchTimeouts.QueueTimeoutMs;
+            payload["executeTimeoutMs"] = batchTimeouts.ExecuteTimeoutMs;
+        }
+
+        private static CodeIndexQueryTimeouts ResolveBatchTimeouts(JObject payload, Dictionary<string, string> options, int timeout)
+        {
+            var items = payload["items"] as JArray;
+            var childTimeoutSum = 0L;
+            if (items != null)
+            {
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var item = items[i] as JObject;
+                    childTimeoutSum += ResolveBatchItemTimeout(item);
+                }
+            }
+
+            var payloadQueueTimeout = payload.Value<int?>("queueTimeoutMs") ?? DefaultQueryQueueTimeoutMs;
+            var payloadExecuteTimeout = payload.Value<int?>("executeTimeoutMs")
+                ?? (int)Math.Min(MaxCodeIndexTimeoutMs, Math.Max(DefaultHeavyQueryTimeoutMs, childTimeoutSum));
+            var explicitTimeout = options != null && options.ContainsKey("timeout");
+            var queueDefault = explicitTimeout ? timeout : payloadQueueTimeout;
+            var executeDefault = explicitTimeout ? timeout : payloadExecuteTimeout;
+            var queueTimeout = ClampTimeout(ResolveOptionInt(options, "queue-timeout", queueDefault));
+            var executeTimeout = ClampTimeout(ResolveOptionInt(options, "execute-timeout", executeDefault));
+            var transportTimeout = Math.Max(timeout, queueTimeout + executeTimeout + QueryTransportPaddingMs);
+
+            return new CodeIndexQueryTimeouts
+            {
+                QueueTimeoutMs = queueTimeout,
+                ExecuteTimeoutMs = executeTimeout,
+                TransportTimeoutMs = ClampTimeout(transportTimeout)
+            };
+        }
+
+        private static int ResolveBatchItemTimeout(JObject item)
+        {
+            if (item == null)
+            {
+                return DefaultHeavyQueryTimeoutMs;
+            }
+
+            var explicitTimeout = item.Value<int?>("executeTimeoutMs");
+            if (explicitTimeout.HasValue && explicitTimeout.Value > 0)
+            {
+                return ClampTimeout(explicitTimeout.Value);
+            }
+
+            var action = NormalizeAction(item.Value<string>("action"));
+            if (string.Equals(action, "diagnostics", StringComparison.OrdinalIgnoreCase))
+            {
+                var parameters = item["parameters"] as JObject;
+                var all = parameters != null && parameters.Value<bool?>("all") == true;
+                return all ? DefaultFullDiagnosticsTimeoutMs : DefaultHeavyQueryTimeoutMs;
+            }
+
+            switch (action)
+            {
+                case "symbol":
+                    return DefaultSymbolTimeoutMs;
+                case "definition":
+                    return DefaultDefinitionTimeoutMs;
+                case "references":
+                case "implementations":
+                case "derived":
+                case "callers":
+                    return DefaultHeavyQueryTimeoutMs;
+                default:
+                    return DefaultHeavyQueryTimeoutMs;
             }
         }
 
@@ -1613,6 +1801,16 @@ namespace AIBridgeCLI.Commands
             }
 
             return int.TryParse(value, out var result) ? result : defaultValue;
+        }
+
+        private static string ResolveStringOption(Dictionary<string, string> options, string key, string defaultValue)
+        {
+            if (options == null || !options.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                return defaultValue;
+            }
+
+            return value;
         }
 
         private static int ClampTimeout(int timeout)
