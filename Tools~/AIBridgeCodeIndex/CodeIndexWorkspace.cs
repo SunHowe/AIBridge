@@ -20,6 +20,7 @@ namespace AIBridgeCodeIndex
         private const int MaxSymbolResults = 100;
         private const int MaxReferenceResults = 500;
         private const int MaxDiagnosticResults = 500;
+        private const int MaxTokenDocumentCacheEntries = 256;
         private const int SchemaVersion = 2;
         private const int ManifestFormatKind = 1;
         private const int AssemblyFormatKind = 2;
@@ -43,7 +44,7 @@ namespace AIBridgeCodeIndex
         private Dictionary<string, List<CodeIndexItem>> _symbolNameMap = new Dictionary<string, List<CodeIndexItem>>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, AssemblySnapshot> _assemblyById = new Dictionary<string, AssemblySnapshot>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _loadedAssemblyIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        private Dictionary<string, HashSet<string>> _tokenDocumentIndex;
+        private Dictionary<string, HashSet<string>> _tokenDocumentCache = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         private List<CodeIndexItem> _semanticSymbols;
         private string _semanticSymbolsSnapshotContentHash;
         private string _loadedSnapshotContentHash;
@@ -181,7 +182,7 @@ namespace AIBridgeCodeIndex
             _solution = null;
             _metadataReferenceCache.Clear();
             _documentPathMap.Clear();
-            _tokenDocumentIndex = null;
+            _tokenDocumentCache.Clear();
             _semanticSymbols = null;
             _semanticSymbolsSnapshotContentHash = null;
             _symbols = symbols;
@@ -657,75 +658,94 @@ namespace AIBridgeCodeIndex
             return result;
         }
 
-        private Dictionary<string, HashSet<string>> GetTokenDocumentIndex()
+        private HashSet<string> GetTokenDocuments(string token)
         {
-            if (_tokenDocumentIndex != null)
+            if (string.IsNullOrWhiteSpace(token))
             {
-                return _tokenDocumentIndex;
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             }
 
             lock (_tokenIndexLock)
             {
-                if (_tokenDocumentIndex != null)
+                HashSet<string> cached;
+                if (_tokenDocumentCache.TryGetValue(token, out cached))
                 {
-                    return _tokenDocumentIndex;
+                    return cached;
                 }
 
-                var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-                if (_manifest == null)
+                var result = LoadTokenDocuments(token);
+                if (_tokenDocumentCache.Count >= MaxTokenDocumentCacheEntries)
                 {
-                    _tokenDocumentIndex = result;
-                    return result;
+                    TrimTokenDocumentCache();
                 }
 
-                for (var i = 0; i < _manifest.Assemblies.Count; i++)
-                {
-                    var record = _manifest.Assemblies[i];
-                    var path = Path.Combine(GetSnapshotDirectory(), record.TokenIndexFile);
-                    if (!File.Exists(path))
-                    {
-                        continue;
-                    }
+                _tokenDocumentCache[token] = result;
+                return result;
+            }
+        }
 
-                    try
+        private HashSet<string> LoadTokenDocuments(string token)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_manifest == null)
+            {
+                return result;
+            }
+
+            for (var i = 0; i < _manifest.Assemblies.Count; i++)
+            {
+                var record = _manifest.Assemblies[i];
+                var path = Path.Combine(GetSnapshotDirectory(), record.TokenIndexFile);
+                if (!File.Exists(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var reader = new BinaryReader(stream, Encoding.UTF8))
                     {
-                        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        using (var reader = new BinaryReader(stream, Encoding.UTF8))
+                        ReadHeader(reader, TextIndexFormatKind);
+                        ReadString(reader);
+                        ReadString(reader);
+                        reader.ReadBoolean();
+                        var count = reader.ReadInt32();
+                        for (var j = 0; j < count; j++)
                         {
-                            ReadHeader(reader, TextIndexFormatKind);
-                            ReadString(reader);
-                            ReadString(reader);
-                            reader.ReadBoolean();
-                            var count = reader.ReadInt32();
-                            for (var j = 0; j < count; j++)
+                            string name;
+                            string file;
+                            int line;
+                            if (!TryParseTextIndexEntry(ReadString(reader), out name, out file, out line))
                             {
-                                string name;
-                                string file;
-                                int line;
-                                if (!TryParseTextIndexEntry(ReadString(reader), out name, out file, out line))
-                                {
-                                    continue;
-                                }
+                                continue;
+                            }
 
-                                HashSet<string> files;
-                                if (!result.TryGetValue(name, out files))
-                                {
-                                    files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                    result[name] = files;
-                                }
-
-                                files.Add(file);
+                            if (string.Equals(name, token, StringComparison.OrdinalIgnoreCase))
+                            {
+                                result.Add(file);
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        _workspaceWarnings.Add("Failed to load token index " + path + ": " + ex.Message);
-                    }
                 }
+                catch (Exception ex)
+                {
+                    _workspaceWarnings.Add("Failed to load token index " + path + ": " + ex.Message);
+                }
+            }
 
-                _tokenDocumentIndex = result;
-                return result;
+            return result;
+        }
+
+        private void TrimTokenDocumentCache()
+        {
+            foreach (var key in _tokenDocumentCache.Keys.ToList())
+            {
+                _tokenDocumentCache.Remove(key);
+                if (_tokenDocumentCache.Count < MaxTokenDocumentCacheEntries)
+                {
+                    return;
+                }
             }
         }
 
@@ -1537,9 +1557,8 @@ namespace AIBridgeCodeIndex
                 return null;
             }
 
-            var tokenIndex = GetTokenDocumentIndex();
-            HashSet<string> files;
-            if (!tokenIndex.TryGetValue(symbol.Name, out files) || files.Count == 0)
+            var files = GetTokenDocuments(symbol.Name);
+            if (files.Count == 0)
             {
                 return null;
             }
