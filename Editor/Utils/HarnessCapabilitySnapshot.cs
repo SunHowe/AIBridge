@@ -111,12 +111,22 @@ namespace AIBridge.Editor
 
         private static Dictionary<string, object> BuildPackageInfo(string projectRoot)
         {
-            var packageRoot = ResolvePackageRoot(projectRoot);
+            var packageRoots = ResolvePackageRoots(projectRoot);
+            var packageRoot = packageRoots.FirstOrDefault();
+            var logicalRoot = "Packages/" + PackageName;
+            var reportedRoots = packageRoots.Select(root => (object)NormalizePath(root)).ToList();
+            if (!reportedRoots.Any(root => string.Equals(Convert.ToString(root), logicalRoot, StringComparison.OrdinalIgnoreCase)))
+            {
+                reportedRoots.Add(logicalRoot);
+            }
+
             return new Dictionary<string, object>
             {
                 { "name", PackageName },
                 { "version", ReadPackageVersion(packageRoot) },
-                { "root", NormalizePath(packageRoot) }
+                { "root", NormalizePath(packageRoot) },
+                { "logicalRoot", logicalRoot },
+                { "roots", reportedRoots }
             };
         }
 
@@ -210,11 +220,23 @@ namespace AIBridge.Editor
             var builtInDirectory = string.IsNullOrWhiteSpace(packageRoot)
                 ? null
                 : Path.Combine(packageRoot, "Templates~", "Workflows");
+            var logicalBuiltInDirectory = "Packages/" + PackageName + "/Templates~/Workflows";
+            var builtInDirectories = ResolvePackageRoots(projectRoot)
+                .Select(root => Path.Combine(root, "Templates~", "Workflows"))
+                .Where(Directory.Exists)
+                .Select(directory => (object)NormalizePath(directory))
+                .ToList();
+            if (!builtInDirectories.Any(directory => string.Equals(Convert.ToString(directory), logicalBuiltInDirectory, StringComparison.OrdinalIgnoreCase)))
+            {
+                builtInDirectories.Add(logicalBuiltInDirectory);
+            }
             var projectDirectory = Path.Combine(projectRoot, ".aibridge", "workflows", "recipes");
 
             return new Dictionary<string, object>
             {
                 { "builtInRecipeDirectory", NormalizePath(builtInDirectory) },
+                { "builtInRecipeLogicalDirectory", logicalBuiltInDirectory },
+                { "builtInRecipeDirectories", builtInDirectories },
                 { "builtInRecipeCount", CountRecipeFiles(builtInDirectory) },
                 { "projectRecipeDirectory", NormalizePath(projectDirectory) },
                 { "projectRecipeCount", CountRecipeFiles(projectDirectory) },
@@ -283,24 +305,92 @@ namespace AIBridge.Editor
 
         private static string ResolvePackageRoot(string projectRoot)
         {
-            var embedded = Path.Combine(projectRoot, "Packages", PackageName);
-            if (File.Exists(Path.Combine(embedded, "package.json")))
-            {
-                return embedded;
-            }
+            return ResolvePackageRoots(projectRoot).FirstOrDefault();
+        }
 
+        private static List<string> ResolvePackageRoots(string projectRoot)
+        {
+            var roots = new List<string>();
             var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + PackageName);
-            if (packageInfo != null && !string.IsNullOrWhiteSpace(packageInfo.resolvedPath))
+            if (packageInfo != null
+                && IsPackageRoot(packageInfo.resolvedPath)
+                && !IsProjectPackagesPath(projectRoot, packageInfo.resolvedPath))
             {
-                return packageInfo.resolvedPath;
+                AddPackageRoot(roots, packageInfo.resolvedPath);
             }
 
-            if (File.Exists(Path.Combine(projectRoot, "package.json")) && Directory.Exists(Path.Combine(projectRoot, "Skill~")))
+            // Git/UPM 包有时会让 PackageInfo 返回逻辑 Packages 路径，能力快照需要真实文件系统路径。
+            var packageCache = Path.Combine(projectRoot, "Library", "PackageCache");
+            if (Directory.Exists(packageCache))
             {
-                return projectRoot;
+                var directCachePackage = Path.Combine(packageCache, PackageName);
+                if (IsPackageRoot(directCachePackage))
+                {
+                    AddPackageRoot(roots, directCachePackage);
+                }
+
+                foreach (var directory in Directory.EnumerateDirectories(packageCache, PackageName + "@*", SearchOption.TopDirectoryOnly))
+                {
+                    if (IsPackageRoot(directory))
+                    {
+                        AddPackageRoot(roots, directory);
+                    }
+                }
             }
 
-            return null;
+            var embedded = Path.Combine(projectRoot, "Packages", PackageName);
+            if (IsPackageRoot(embedded))
+            {
+                AddPackageRoot(roots, embedded);
+            }
+
+            if (packageInfo != null && IsPackageRoot(packageInfo.resolvedPath))
+            {
+                AddPackageRoot(roots, packageInfo.resolvedPath);
+            }
+
+            if (IsPackageRoot(projectRoot))
+            {
+                AddPackageRoot(roots, projectRoot);
+            }
+
+            return roots;
+        }
+
+        private static void AddPackageRoot(List<string> roots, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            var fullPath = Path.GetFullPath(path);
+            if (!roots.Any(root => string.Equals(Path.GetFullPath(root), fullPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                roots.Add(path);
+            }
+        }
+
+        private static bool IsPackageRoot(string directory)
+        {
+            return !string.IsNullOrWhiteSpace(directory)
+                && Directory.Exists(directory)
+                && File.Exists(Path.Combine(directory, "package.json"))
+                && Directory.Exists(Path.Combine(directory, "Skill~"));
+        }
+
+        private static bool IsProjectPackagesPath(string projectRoot, string path)
+        {
+            if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            var packagesRoot = Path.GetFullPath(Path.Combine(projectRoot, "Packages"))
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            var fullPath = Path.GetFullPath(path);
+            return fullPath.StartsWith(packagesRoot, StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ReadPackageVersion(string packageRoot)

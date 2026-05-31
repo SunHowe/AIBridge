@@ -17,10 +17,13 @@ namespace AIBridge.Runtime
 
     public sealed class AIBridgeRuntimeLogBuffer : IDisposable
     {
+        private const int UnknownFrame = -1;
+
         private readonly object _syncRoot = new object();
         private readonly List<AIBridgeRuntimeLogEntry> _entries = new List<AIBridgeRuntimeLogEntry>();
         private int _capacity = 500;
         private bool _initialized;
+        private int _mainThreadId;
 
         public int Count
         {
@@ -41,6 +44,7 @@ namespace AIBridge.Runtime
                 return;
             }
 
+            _mainThreadId = Environment.CurrentManagedThreadId;
             Application.logMessageReceivedThreaded += OnLogMessageReceived;
             _initialized = true;
         }
@@ -97,7 +101,7 @@ namespace AIBridge.Runtime
                         continue;
                     }
 
-                    if (sinceFrame.HasValue && entry.frame < sinceFrame.Value)
+                    if (sinceFrame.HasValue && entry.frame != UnknownFrame && entry.frame < sinceFrame.Value)
                     {
                         continue;
                     }
@@ -128,7 +132,7 @@ namespace AIBridge.Runtime
                 message = Truncate(condition, 4096),
                 stackTrace = Truncate(stackTrace, 8192),
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                frame = Time.frameCount
+                frame = GetFrameForCurrentThread()
             };
 
             lock (_syncRoot)
@@ -151,6 +155,12 @@ namespace AIBridge.Runtime
                 timestamp = entry.timestamp,
                 frame = entry.frame
             };
+        }
+
+        private int GetFrameForCurrentThread()
+        {
+            // logMessageReceivedThreaded 可能在工作线程触发，非主线程不能访问 UnityEngine.Time。
+            return Environment.CurrentManagedThreadId == _mainThreadId ? Time.frameCount : UnknownFrame;
         }
 
         private static bool MatchesLogType(string requestedType, string entryType)

@@ -1,3 +1,6 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using AIBridge.Runtime;
 using AIBridge.Runtime.Diagnostics;
 using NUnit.Framework;
@@ -34,6 +37,41 @@ namespace AIBridge.Editor.Tests
 
                 Assert.That(buffer.Clear(), Is.EqualTo(1));
                 Assert.That(buffer.Count, Is.EqualTo(0));
+            }
+            finally
+            {
+                buffer.Dispose();
+            }
+        }
+
+        [Test]
+        public void LogBuffer_ThreadedLogsDoNotCallUnityFrameApi()
+        {
+            var buffer = new AIBridgeRuntimeLogBuffer();
+            buffer.Initialize(10);
+
+            try
+            {
+                const string Message = "aibridge-runtime-log-buffer-threaded-test";
+
+                LogAssert.Expect(LogType.Log, Message);
+                Assert.That(Task.Run(() => Debug.Log(Message)).Wait(5000), Is.True);
+
+                var deadline = DateTime.UtcNow.AddSeconds(2);
+                AIBridgeRuntimeLogEntry[] entries;
+                do
+                {
+                    entries = buffer.GetEntries(10, "Log", "threaded-test", false, Time.frameCount, null);
+                    if (entries.Length > 0)
+                    {
+                        break;
+                    }
+
+                    Thread.Sleep(10);
+                } while (DateTime.UtcNow < deadline);
+
+                Assert.That(entries.Length, Is.EqualTo(1));
+                Assert.That(entries[0].frame, Is.EqualTo(-1));
             }
             finally
             {
