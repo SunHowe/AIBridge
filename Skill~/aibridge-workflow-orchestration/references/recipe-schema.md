@@ -17,6 +17,7 @@ Package templates live under `Templates~/Workflows`. Project-local recipes live 
 ```bash
 $CLI workflow list
 $CLI workflow validate --recipe runtime-target-sweep
+$CLI workflow plan --recipe runtime-debug-investigation --format markdown
 $CLI workflow plan --recipe runtime-ui-validation --format markdown
 $CLI workflow init --recipe runtime-ui-validation
 $CLI workflow begin --recipe unity-change-implementation

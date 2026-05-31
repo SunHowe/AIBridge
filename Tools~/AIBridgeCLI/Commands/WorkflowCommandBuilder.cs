@@ -120,6 +120,7 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("Examples:");
             sb.AppendLine("  AIBridgeCLI workflow list");
             sb.AppendLine("  AIBridgeCLI workflow validate --recipe runtime-target-sweep");
+            sb.AppendLine("  AIBridgeCLI workflow plan --recipe runtime-debug-investigation --format markdown");
             sb.AppendLine("  AIBridgeCLI workflow plan --recipe runtime-ui-validation --format markdown");
             sb.AppendLine("  AIBridgeCLI workflow init --recipe runtime-ui-validation");
             sb.AppendLine("  AIBridgeCLI workflow begin --recipe unity-change-implementation");

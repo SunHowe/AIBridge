@@ -15,6 +15,7 @@ namespace AIBridge.Editor.Tests
             "unity-change-implementation",
             "unity-sharded-review",
             "runtime-target-sweep",
+            "runtime-debug-investigation",
             "runtime-ui-validation",
             "prefab-asset-sweep",
             "bug-hunter-loop"
@@ -78,6 +79,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("$CLI workflow validate", schema);
             StringAssert.Contains("skipped_requires_external_executor", schema);
             StringAssert.Contains("runtime-target-sweep", recipes);
+            StringAssert.Contains("runtime-debug-investigation", recipes);
             StringAssert.Contains("prefab-asset-sweep", recipes);
             StringAssert.Contains("Never parallel-write", schema);
         }

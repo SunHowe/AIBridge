@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 1,
+  "name": "runtime-debug-investigation",
+  "title": "Runtime Debug Investigation",
+  "description": "Collect Editor and Runtime evidence, reproduce symptoms, verify candidate root causes, and report a diagnosis without applying fixes by default.",
+  "version": "1.0.0",
+  "inputs": {
+    "symptom": {
+      "description": "Observed problem, error, performance issue, UI symptom, or runtime behavior to investigate."
+    },
+    "target": {
+      "description": "Runtime target id, latest, or URL-backed target.",
+      "default": "latest"
+    },
+    "reproSteps": {
+      "description": "Known reproduction steps or actions to run manually."
+    },
+    "expectedState": {
+      "description": "Expected visible or runtime state."
+    },
+    "logCount": {
+      "description": "Number of recent log entries to collect.",
+      "default": 100
+    },
+    "collectScreenshot": {
+      "description": "Whether the executor should collect Runtime screenshot evidence.",
+      "default": true
+    },
+    "collectPerf": {
+      "description": "Whether the executor should collect a short Runtime perf sample.",
+      "default": true
+    },
+    "allowFix": {
+      "description": "Whether the executor may hand off confirmed causes to an implementation branch.",
+      "default": false
+    }
+  },
+  "phases": [
+    {
+      "id": "frame-problem",
+      "type": "serial",
+      "description": "Normalize symptom, target, expected state, repro steps, and whether fixes are allowed.",
+      "steps": [
+        {
+          "id": "frame-debug-scope",
+          "kind": "manual",
+          "role": "debug-lead",
+          "description": "Record symptom, expectedState, reproSteps, target, platform, and allowFix before collecting evidence.",
+          "outputs": [
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collect-editor-baseline",
+      "type": "serial",
+      "description": "Collect deterministic Editor compile and Console evidence.",
+      "dependsOn": [
+        "frame-problem"
+      ],
+      "steps": [
+        {
+          "id": "compile-unity-baseline",
+          "kind": "cli",
+          "description": "Check whether Unity compilation already fails before runtime diagnosis.",
+          "command": "compile unity",
+          "outputs": [
+            "ValidationResult"
+          ]
+        },
+        {
+          "id": "editor-error-logs",
+          "kind": "cli",
+          "description": "Collect recent Editor Console errors as baseline evidence.",
+          "command": "get_logs --logType Error --count {{logCount}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collect-runtime-baseline",
+      "type": "serial",
+      "description": "Collect Runtime reachability, diagnostics, logs, screenshot, perf, and handler evidence.",
+      "dependsOn": [
+        "collect-editor-baseline"
+      ],
+      "steps": [
+        {
+          "id": "runtime-list-targets",
+          "kind": "cli",
+          "description": "List known Runtime targets before selecting one.",
+          "command": "runtime list_targets",
+          "outputs": [
+            "RuntimeTargetRef",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-status",
+          "kind": "cli",
+          "description": "Check selected Runtime target reachability and status.",
+          "command": "runtime status --target {{target}}",
+          "outputs": [
+            "RuntimeTargetRef",
+            "ValidationResult"
+          ]
+        },
+        {
+          "id": "runtime-diagnose",
+          "kind": "cli",
+          "description": "Run Runtime transport and target diagnostics.",
+          "command": "runtime diagnose --target {{target}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-error-logs",
+          "kind": "cli",
+          "description": "Collect recent Runtime errors as diagnosis evidence.",
+          "command": "runtime logs --target {{target}} --logType Error --count {{logCount}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-screenshot",
+          "kind": "cli",
+          "description": "Capture Runtime visual state when available.",
+          "command": "runtime screenshot --target {{target}}",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-perf",
+          "kind": "cli",
+          "description": "Collect a short Runtime performance sample.",
+          "command": "runtime perf --target {{target}} --duration 5s --interval 100ms",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-handlers",
+          "kind": "cli",
+          "description": "List exposed Runtime handlers for targeted diagnostic calls.",
+          "command": "runtime handlers --target {{target}}",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reproduce-or-trace",
+      "type": "serial",
+      "description": "Run the requested repro actions or runtime calls outside the deterministic CLI baseline.",
+      "dependsOn": [
+        "collect-runtime-baseline"
+      ],
+      "steps": [
+        {
+          "id": "run-repro-actions",
+          "kind": "manual",
+          "role": "action-runner",
+          "description": "Execute reproSteps with input, game view actions, or runtime call commands in a serial order.",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "analyze-candidates",
+      "type": "serial",
+      "description": "Generate evidence-backed candidate root causes without editing.",
+      "dependsOn": [
+        "reproduce-or-trace"
+      ],
+      "steps": [
+        {
+          "id": "generate-root-cause-candidates",
+          "kind": "agent",
+          "role": "debug-analyzer",
+          "description": "Return Finding[] using only collected Editor, Runtime, screenshot, perf, handler, Code Index, or rg evidence.",
+          "outputs": [
+            "Finding"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "verify-candidates",
+      "type": "serial",
+      "description": "Verify candidates independently and mark confirmed, refuted, or uncertain.",
+      "dependsOn": [
+        "analyze-candidates"
+      ],
+      "steps": [
+        {
+          "id": "verify-root-cause-candidates",
+          "kind": "agent",
+          "role": "debug-verifier",
+          "description": "Return Verdict[] with evidence and remaining risk for each candidate.",
+          "outputs": [
+            "Verdict"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "report",
+      "description": "Write the diagnosis report and optional implementation handoff.",
+      "dependsOn": [
+        "verify-candidates"
+      ],
+      "steps": [
+        {
+          "id": "write-debug-report",
+          "kind": "report",
+          "description": "Generate diagnosis, evidence, candidate verdicts, unverified items, and allowFix handoff notes.",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "editor-log-evidence",
+      "kind": "artifactRequired",
+      "required": true,
+      "artifactKind": "console-log",
+      "min": 1
+    },
+    {
+      "id": "runtime-reachable",
+      "kind": "runtimeReachable",
+      "required": true
+    },
+    {
+      "id": "runtime-status-evidence",
+      "kind": "artifactRequired",
+      "required": true,
+      "artifactKind": "runtime-status",
+      "min": 1
+    },
+    {
+      "id": "runtime-log-evidence",
+      "kind": "artifactRequired",
+      "required": true,
+      "artifactKind": "runtime-log",
+      "min": 1
+    },
+    {
+      "id": "runtime-screenshot-evidence",
+      "kind": "screenshotExists",
+      "required": false
+    },
+    {
+      "id": "confirmed-debug-verdict",
+      "kind": "externalVerdict",
+      "required": false,
+      "stepId": "verify-root-cause-candidates",
+      "allow": [
+        "confirmed"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "console-log",
+      "description": "Editor Console evidence collected before Runtime diagnosis.",
+      "required": true
+    },
+    {
+      "kind": "runtime-status",
+      "description": "Runtime target reachability and status evidence.",
+      "required": true
+    },
+    {
+      "kind": "runtime-log",
+      "description": "Runtime error log evidence.",
+      "required": true
+    },
+    {
+      "kind": "runtime-screenshot",
+      "description": "Runtime screenshot evidence when available.",
+      "required": false
+    },
+    {
+      "kind": "runtime-perf",
+      "description": "Runtime performance sample when available.",
+      "required": false
+    },
+    {
+      "kind": "verdict",
+      "description": "Imported confirmed, refuted, or uncertain candidate verdicts.",
+      "required": false
+    },
+    {
+      "kind": "workflow-report",
+      "description": "Diagnosis report with evidence and remaining risks.",
+      "required": true
+    }
+  ]
+}

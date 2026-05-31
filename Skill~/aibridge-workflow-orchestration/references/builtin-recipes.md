@@ -37,6 +37,15 @@ Use for Editor Play Mode, Windows Player, Android, or LAN Runtime target health 
 - Gates: `runtimeReachable`, `runtimeErrors max=0`, optional `screenshotExists`.
 - Boundary: capture target id or URL in evidence so the same target can be diagnosed later.
 
+## runtime-debug-investigation
+
+Use when the task is to investigate a Runtime, Player, Play Mode, UI, log, or performance symptom and produce a diagnosis before applying fixes.
+
+- Phases: frame problem, collect Editor baseline, collect Runtime baseline, reproduce or trace, analyze candidates, verify candidates, report.
+- CLI steps: `compile unity`, `get_logs`, `runtime list_targets`, `runtime status`, `runtime diagnose`, `runtime logs`, `runtime screenshot`, `runtime perf`, `runtime handlers`.
+- Gates: required evidence gates for Editor logs, Runtime reachability, Runtime status, and Runtime logs; optional screenshot and confirmed external verdict.
+- Boundary: Runtime errors are diagnosis evidence, not a required zero-error health gate. Apply fixes only after a confirmed cause is handed off to an implementation workflow.
+
 ## runtime-ui-validation
 
 Use for validating UI behavior through Runtime or Play Mode action paths.

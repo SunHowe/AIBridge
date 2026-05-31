@@ -1,11 +1,11 @@
 ---
 name: aibridge-workflow-orchestration
-description: AIBridge workflow and multi-agent orchestration guidance. Use when Codex needs to design, review, or execute a multi-agent workflow plan, split Unity work into parallel or pipeline agent roles, define structured workflow artifacts, choose between batch/multi automation and agent orchestration, run adversarial verification, sweep multiple Runtime targets, or prepare AIBridge workflow recipes.
+description: AIBridge workflow and multi-agent orchestration guidance. Use when Codex needs to design, review, or execute a multi-agent workflow plan, split Unity work into parallel or pipeline agent roles, define structured workflow artifacts, choose between batch/multi automation and agent orchestration, run adversarial verification, investigate Runtime debug evidence, sweep multiple Runtime targets, or prepare AIBridge workflow recipes.
 ---
 
 # AIBridge Workflow Orchestration
 
-Use this Skill for workflow recipes, multi-agent orchestration, parallel review, pipeline validation, adversarial verification, Runtime target sweeps, or structured workflow artifacts.
+Use this Skill for workflow recipes, multi-agent orchestration, parallel review, pipeline validation, adversarial verification, Runtime debug investigations, Runtime target sweeps, or structured workflow artifacts.
 
 Do not use it for routine single-file edits, simple CLI command lookup, or ordinary Unity validation. Use `aibridge-development-workflow` and `aibridge` for those tasks.
 

@@ -1,32 +1,35 @@
 ---
 name: aibridge-development-workflow
-description: "AIBridge/Unity 项目的标准开发工作流。Use when creating, modifying, fixing, refactoring, or validating C# code, Unity assets, prefabs, editor tools, package structure, tests, AGENTS.md, or local Skills. Preserves visible modes for Skills matching, requirement confirmation, analysis, implementation, and final checklist. Do not use for pure Q&A, simple search/display, or code explanation tasks with no file/code/asset changes."
+description: "AIBridge/Unity 项目的多分支工作流入口。Use when creating, modifying, fixing, refactoring, diagnosing, debugging, reviewing, or validating C# code, Unity assets, prefabs, editor tools, package structure, tests, AGENTS.md, local Skills, Runtime behavior, logs, or workflow recipes. Routes tasks into implementation, debug investigation, review, validation, or orchestration branches. Do not use for pure Q&A, simple search/display, or code explanation tasks with no file/code/asset/runtime investigation."
 ---
 
 # AIBridge Development Workflow
 
 ## 目标
 
-在开发任务中保留清晰的阶段可视化，让用户知道当前 AI 正处于哪个工作阶段、加载了哪些 Skills，并在结束前执行明确的验收清单。
+作为 AIBridge/Unity 任务的兼容入口，先完成 Skill 匹配和任务分流，再进入对应分支，最后执行该分支的检查清单。
 
 本 Skill 只放主流程。细节规则按需读取：
 
+- `references/branch-selection.md`：任务分流规则、各分支触发条件和交接边界。
 - `references/risk-gates.md`：需求确认、风险分级、何时必须暂停确认。
 - `references/coding-rules.md`：C#、Unity、注释、硬编码、重复代码规则。
 - `references/editor-generation.md`：复杂生成、分析、诊断、Runtime/Public API 调用等一次性 Editor C# 脚本规范。
-- `references/checklist.md`：最终检查清单和收尾输出格式。
+- `references/checklist.md`：实施分支最终检查清单和收尾输出格式。
+- `references/debug-investigation-workflow.md`：调试诊断分支流程、证据规则、Runtime 追踪和结论格式。
+- `references/debug-investigation-checklist.md`：调试诊断分支检查清单。
 
 ## 阶段总览
 
-开发任务按以下模式推进：
+任务按以下模式推进：
 
-`【Skills 匹配模式】 → 【需求确认模式】 → 【分析模式】 → 【方案实施模式】 → 【检查清单模式】`
+`【Skills 匹配模式】 → 【任务分流模式】 → 【需求确认模式】 → 【分支执行模式】 → 【分支检查清单模式】`
 
-简单低风险修改可以在一条回复中连续展示多个模式，但不能省略分析和最终检查清单。
+简单低风险任务可以在一条回复中连续展示多个模式，但不能省略分流判断、必要分析和最终检查清单。
 
 ## Skills 匹配模式
 
-收到开发任务后，先输出实际使用的 Skills，仅列名称：
+收到任务后，先输出实际使用的 Skills，仅列名称：
 
 ```text
 【Skills 匹配模式】aibridge-development-workflow、aibridge
@@ -34,8 +37,9 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 
 匹配规则：
 
-- 所有开发任务至少包含 `aibridge-development-workflow`。
+- 所有开发、调试、审查、验证或 workflow 任务至少包含 `aibridge-development-workflow`。
 - 涉及 AIBridge CLI、Unity 编译、日志、资源搜索、预制、场景或 Inspector 操作时，加入 `aibridge`。
+- 涉及问题排查、复现、Runtime/Player/Play Mode 状态、日志、截图、性能、输入路径、运行时 handler 或运行时调用分析时，加入 `aibridge`；需要多目标采集、对抗验证或 workflow recipe 时，再加入 `aibridge-workflow-orchestration`。
 - 涉及 C# 代码查找、源码导航、符号、定义、引用、实现、派生类型、调用者或诊断查询时，只有 `aibridge-code-index` 已安装且项目规则未声明 Code Index 关闭，才优先加入 `aibridge-code-index`；否则使用 `rg` 和常规文件读取。
 - 涉及字面量字符串、注释、配置、文件名、非 C# 代码、Unity 资源、Prefab 或 Scene 搜索时，使用 `rg`、文件读取或常规 AIBridge 命令，不使用 Code Index。
 - 涉及复杂 Prefab 资源修改、批量 SerializedProperty、子物体/组件创建或引用写入时，加入 `aibridge-prefab-patch`。
@@ -44,6 +48,24 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 - 涉及 Workflow recipe、多 Agent 编排、并行/流水线 Agent 分工、对抗验证、运行时多目标 sweep、结构化 workflow artifact 或 workflow 方案设计时，加入 `aibridge-workflow-orchestration`。
 - 涉及创建或修改 Skill 时，加入 `skill-creator`。
 - 涉及复杂一次性 Editor 侧 C# 任务时，读取 `references/editor-generation.md`，优先评估 `.aibridge/code/*.csx`；包括复杂资源首次生成、调用项目 Runtime/Public API、场景/资源统计、诊断报告或多步骤 UnityEditor API 编排。
+
+## 任务分流模式
+
+读取 `references/branch-selection.md`，选择一个主分支；其它分支只能作为交接或验证补充。
+
+```text
+【任务分流模式】
+主分支：调试诊断分支
+理由：用户要求排查运行时问题并追踪日志/Runtime 证据，当前目标是诊断结论，不是立即修改代码。
+```
+
+分支规则：
+
+- **实施分支**：创建、修改、修复、重构、迁移或生成代码/资源。继续使用实施分析、方案实施和 `references/checklist.md`。
+- **调试诊断分支**：排查问题、复现症状、追踪日志/Runtime/Player/Play Mode 信息、分析根因。读取 `references/debug-investigation-workflow.md` 和 `references/debug-investigation-checklist.md`。
+- **审查分支**：用户要求 review/audit/检查风险且未要求修改。只读优先，发现问题必须区分 confirmed/refuted/uncertain。
+- **验证分支**：用户只要求编译、日志、截图、Runtime/UI 验证或回归确认。选择与验收点匹配的 AIBridge 命令或 workflow recipe。
+- **编排分支**：workflow recipe、多 Agent、并行 sweep、对抗验证或结构化 artifact。读取 `aibridge-workflow-orchestration` references。
 
 ## 需求确认模式
 
@@ -63,12 +85,13 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 
 不确定时读取 `references/risk-gates.md`。
 
-## 分析模式
+## 分支执行模式
 
-任何文件、代码或资源修改前必须先分析。优先使用直接工具收集上下文：
+进入分支后，按分支规范收集上下文和执行任务。任何文件、代码或资源修改前必须先分析。优先使用直接工具收集上下文：
 
 - 用 `rg` / `rg --files` 搜索现有实现、工具类、命名模式和相邻代码。
 - 涉及 Unity 对象、Prefab、资源、Console 时，结合 `aibridge` 查询。
+- 涉及 Runtime/Player/Play Mode 调试时，先收集 target、日志、截图、性能、handler 或调用结果，再提出候选根因。
 - 涉及外部库或版本敏感信息时，只查官方文档。
 - 代理工具只有在用户明确要求或当前环境允许时才使用；不可伪造已启动代理。
 
@@ -82,7 +105,7 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 ✅ 实施门控：条件满足，进入方案实施。
 ```
 
-## 方案实施模式
+### 实施分支
 
 实施前必须显示当前 Skills 和已加载的关键规范：
 
@@ -103,9 +126,24 @@ description: "AIBridge/Unity 项目的标准开发工作流。Use when creating,
 - 使用一次性 Editor 脚本处理复杂生成、分析、诊断或 Runtime/Public API 调用前读取 `references/editor-generation.md`。
 - 使用多 Agent 编排前，先读取 `aibridge-workflow-orchestration/references/orchestration-patterns.md`，明确并行读/串行写、结构化输出、artifact 和验证门。
 
-## 检查清单模式
+### 调试诊断分支
 
-所有开发任务结束前必须进入检查清单模式，读取 `references/checklist.md`，并按实际任务执行适用项。
+调试诊断分支必须先证据后结论，禁止在未确认根因时直接修改代码或资源。需要修复时，把 confirmed 根因和证据交接到实施分支。
+
+常用证据：
+
+- Editor：`compile unity`、`get_logs --logType Error --count 100`、按需 Warning/regex 日志。
+- Runtime：`runtime list_targets`、`runtime status`、`runtime diagnose`、`runtime logs`、`runtime screenshot`、`runtime perf`、`runtime handlers`、`runtime call`。
+- 交互：`input`、`screenshot game`、`screenshot gif`、GameView/Runtime 截图。
+- 代码：C# 语义查询用 `aibridge-code-index`，字面量/配置/资源搜索用 `rg`。
+
+## 分支检查清单模式
+
+所有任务结束前必须进入分支检查清单模式，按主分支读取对应清单：
+
+- 实施分支：`references/checklist.md`
+- 调试诊断分支：`references/debug-investigation-checklist.md`
+- 编排分支：`aibridge-workflow-orchestration/references/orchestration-patterns.md` 中的 artifact/gate 规则
 
 输出必须包含通过、失败、已修复或不适用状态：
 
