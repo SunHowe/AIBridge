@@ -35,6 +35,8 @@ namespace AIBridgeCLI.Commands
         private const int DefaultFullDiagnosticsTimeoutMs = 60000;
         private const int DefaultQueryQueueTimeoutMs = 60000;
         private const int QueryTransportPaddingMs = 1000;
+        private const int ExistingDaemonReachabilityWaitMs = 5000;
+        private const int ExistingDaemonRetryDelayMs = 150;
         private const int MaxCodeIndexTimeoutMs = 600000;
         private const int MaxBatchItems = 100;
         private const string SnapshotMagic = "AIBCI";
@@ -161,6 +163,12 @@ namespace AIBridgeCLI.Commands
             ValidateQueryArguments(action, options);
 
             var status = await EnsureDaemonAsync(context, timeout, false);
+            if (IsDaemonTransportFailure(status))
+            {
+                status["enabled"] = context.Enabled;
+                return status;
+            }
+
             if (IsReady(status))
             {
                 var queryTimeouts = ResolveQueryTimeouts(action, options, timeout);
@@ -260,6 +268,13 @@ namespace AIBridgeCLI.Commands
             }
         }
 
+        private static bool IsDaemonTransportFailure(JObject response)
+        {
+            return response != null
+                && response.Value<bool?>("success") == false
+                && string.Equals(response.Value<string>("errorCode"), "daemon_unreachable", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static async Task<JObject> BatchAsync(CodeIndexContext context, Dictionary<string, string> options, int timeout)
         {
             var payload = ReadBatchPayload(context, options);
@@ -280,6 +295,12 @@ namespace AIBridgeCLI.Commands
             }
 
             var status = await EnsureDaemonAsync(context, timeout, false);
+            if (IsDaemonTransportFailure(status))
+            {
+                status["enabled"] = context.Enabled;
+                return status;
+            }
+
             if (!IsReady(status))
             {
                 return BuildFailure(context, "Unity snapshot workspace is not ready.", "workspace_not_ready");
@@ -882,6 +903,12 @@ namespace AIBridgeCLI.Commands
                 return BuildFailure(context, "No Unity compilation snapshot found. Open the Unity project once or run Code Index prewarm from AIBridge settings.");
             }
 
+            var existingStatus = await WaitForReachableExistingDaemonAsync(context, status, timeout);
+            if (existingStatus != null)
+            {
+                return existingStatus;
+            }
+
             var startedStatus = await EnsureDaemonStartedUnderLockAsync(context, timeout);
             if (startedStatus == null)
             {
@@ -922,6 +949,12 @@ namespace AIBridgeCLI.Commands
                     return remote;
                 }
 
+                var existingStatus = await WaitForReachableExistingDaemonAsync(context, status, timeout);
+                if (existingStatus != null)
+                {
+                    return existingStatus;
+                }
+
                 CleanupOrphanDaemons(context, 0);
                 DeleteFileIfExists(context.StatusPath);
                 DeleteFileIfExists(Path.Combine(context.IndexDirectory, "lock.json"));
@@ -929,6 +962,79 @@ namespace AIBridgeCLI.Commands
                 StartDaemon(context);
                 return await WaitForStatusFileAsync(context, timeout);
             }
+        }
+
+        private static async Task<JObject> WaitForReachableExistingDaemonAsync(CodeIndexContext context, JObject status, int timeout)
+        {
+            if (!IsStatusDaemonProcessAlive(context, status))
+            {
+                return null;
+            }
+
+            var waitMs = Math.Min(Math.Max(500, timeout), ExistingDaemonReachabilityWaitMs);
+            var deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
+            var latestStatus = status;
+            while (DateTime.UtcNow < deadline)
+            {
+                var remote = latestStatus == null ? null : await TryGetRemoteStatusAsync(latestStatus, timeout);
+                if (remote != null)
+                {
+                    CopyStatusRuntimeFields(latestStatus, remote);
+                    remote["reachable"] = true;
+                    return remote;
+                }
+
+                await Task.Delay(ExistingDaemonRetryDelayMs);
+                latestStatus = ReadStatusFile(context) ?? latestStatus;
+                if (!IsStatusDaemonProcessAlive(context, latestStatus))
+                {
+                    return null;
+                }
+            }
+
+            return BuildFailure(
+                context,
+                "Existing code_index daemon process is still running, but its HTTP endpoint did not respond within "
+                + waitMs.ToString(CultureInfo.InvariantCulture)
+                + "ms. Automatic restart was skipped to avoid interrupting in-flight queries.",
+                "daemon_unreachable");
+        }
+
+        private static bool IsStatusDaemonProcessAlive(CodeIndexContext context, JObject status)
+        {
+            Process process;
+            if (!TryGetStatusDaemonProcess(context, status, out process))
+            {
+                return false;
+            }
+
+            using (process)
+            {
+                return true;
+            }
+        }
+
+        private static bool TryGetStatusDaemonProcess(CodeIndexContext context, JObject status, out Process process)
+        {
+            process = null;
+            if (context == null || status == null)
+            {
+                return false;
+            }
+
+            var daemonPid = status.Value<int?>("daemonPid") ?? 0;
+            if (daemonPid <= 0)
+            {
+                return false;
+            }
+
+            var markerPath = GetDaemonProcessMarkerPath(context, daemonPid);
+            if (!File.Exists(markerPath))
+            {
+                markerPath = context.DaemonProcessPath;
+            }
+
+            return TryGetCodeIndexProcess(daemonPid, markerPath, out process);
         }
 
         private static async Task<FileStream> AcquireDaemonLaunchLockAsync(CodeIndexContext context, int timeout)

@@ -15,6 +15,8 @@ namespace AIBridgeCodeIndex
     internal sealed class CodeIndexServer
     {
         private const int QueryQueueCapacity = 64;
+        private const int StatusFileWriteRetryCount = 5;
+        private const int StatusFileWriteRetryDelayMs = 20;
 
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
         {
@@ -1014,20 +1016,89 @@ namespace AIBridgeCodeIndex
                 lock (_statusFileLock)
                 {
                     var directory = Path.GetDirectoryName(_options.StatusPath);
+                    var json = JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings);
                     if (!string.IsNullOrEmpty(directory))
                     {
                         Directory.CreateDirectory(directory);
                         var lockPath = Path.Combine(directory, "lock.json");
-                        File.WriteAllText(lockPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
+                        WriteAllTextAtomic(lockPath, json);
                     }
 
-                    File.WriteAllText(_options.StatusPath, JsonConvert.SerializeObject(GetStatusSnapshot(), Formatting.Indented, JsonSettings), Encoding.UTF8);
+                    WriteAllTextAtomic(_options.StatusPath, json);
                 }
             }
             catch (Exception ex)
             {
                 Log("Failed to write status: " + ex.Message);
             }
+        }
+
+        private static void WriteAllTextAtomic(string path, string contents)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var tempPath = path + "." + Process.GetCurrentProcess().Id + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            File.WriteAllText(tempPath, contents, Encoding.UTF8);
+            try
+            {
+                for (var attempt = 0; attempt < StatusFileWriteRetryCount; attempt++)
+                {
+                    try
+                    {
+                        ReplaceStatusFile(tempPath, path);
+
+                        return;
+                    }
+                    catch (IOException)
+                    {
+                        if (attempt == StatusFileWriteRetryCount - 1)
+                        {
+                            throw;
+                        }
+
+                        Thread.Sleep(StatusFileWriteRetryDelayMs);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        if (attempt == StatusFileWriteRetryCount - 1)
+                        {
+                            throw;
+                        }
+
+                        Thread.Sleep(StatusFileWriteRetryDelayMs);
+                    }
+                }
+            }
+            finally
+            {
+                DeleteFileIfExists(tempPath);
+            }
+        }
+
+        private static void ReplaceStatusFile(string tempPath, string path)
+        {
+            if (File.Exists(path))
+            {
+                try
+                {
+                    File.Replace(tempPath, path, null);
+                    return;
+                }
+                catch (PlatformNotSupportedException)
+                {
+                }
+            }
+
+            File.Move(tempPath, path, true);
         }
 
         private void CleanupTransientState()
