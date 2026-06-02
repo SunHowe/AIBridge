@@ -72,6 +72,7 @@ Large outputs should be saved as artifacts and referenced by path or id instead 
 ## Skill Routing And Scope
 
 - Treat Skill routing as a preflight step, not as a business mode or phase.
+- During execution, emit a short visible status when entering a phase or step: current phase/step, active Skills, expected output, and handoff or gate status when leaving it.
 - Each phase or external task pack should declare only the Skills required for that phase; candidate Skills that are not read yet should stay deferred.
 - Release mode-specific Skill dependencies only at Mode Exit, phase boundary, or step handoff, then pass a compact handoff instead of the previous phase's full Skill details.
 - A handoff should use the `SkillHandoff` schema and include `completedMode`, `releasedSkills`, `nextRecommendedSkills`, `summary`, `artifactRefs`, `gates`, and `openRisks`.

@@ -97,6 +97,8 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("字面量字符串", workflowSkill);
             StringAssert.Contains("Harness 能力探测模式", workflowSkill);
             StringAssert.Contains("references/harness-readiness.md", workflowSkill);
+            StringAssert.Contains("【Preflight / Skill 路由】", workflowSkill);
+            StringAssert.Contains("activeSkills", workflowSkill);
         }
 
         [Test]

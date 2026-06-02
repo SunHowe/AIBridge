@@ -37,10 +37,11 @@ Preflight / Skill Routing
 - 审查分支发现问题后，未得到修复授权前不直接改文件。
 - 编排分支只定义流程、角色、artifact 和 gate；具体 Unity 对象修改仍由实施分支串行完成。
 - Mode Exit 或分支交接时同步交接 Skill 作用域：列出已释放的模式专用 Skill、下一分支建议加载的 Skill、必要 artifact refs、gate 状态和未关闭风险。
+- 进入模式、phase 或 step 时必须输出当前模式和 active Skills，方便开发者追踪执行阶段；不要把 Skill 作用域只写进内部状态或最终 report。
 
 ## Handoff 摘要
 
-Mode Exit、phase 结束或 step 交接时，优先输出 `SkillHandoff` compact handoff，而不是继续携带上一模式的完整 Skill 细节。
+Mode Exit、phase 结束或 step 交接时，必须输出 `SkillHandoff` compact handoff，而不是继续携带上一模式的完整 Skill 细节。
 
 ```json
 {
@@ -63,7 +64,16 @@ Mode Exit、phase 结束或 step 交接时，优先输出 `SkillHandoff` compact
 
 ```text
 【Preflight / Skill 路由】
+baselineSkills：aibridge-development-workflow
+activeSkills：aibridge、aibridge-workflow-orchestration
+deferredSkills：aibridge-code-index（仅 C# 语义查询时）
+guardedSkills：aibridge-prefab-patch（仅复杂 Prefab 修改时）
 主分支：调试诊断分支
 辅助分支：编排分支（需要 Runtime 多目标 sweep 时）
 理由：用户目标是排查运行时异常，当前验收是证据和根因结论，不是立即修改代码。
+
+【调试诊断模式】
+当前模式 Skills：aibridge-development-workflow、aibridge
+当前步骤：基线证据收集
+已加载规范：debug-investigation-workflow、debug-investigation-checklist
 ```

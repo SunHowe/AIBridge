@@ -12,6 +12,7 @@ Do not use it for routine single-file edits, simple CLI command lookup, or ordin
 ## Core Rules
 
 - Keep orchestration explicit: phases, roles, dependencies, gates, artifacts, and expected outputs.
+- Keep execution visible: when running a workflow, name the current phase/step and active Skills in short user-facing status text.
 - Prefer parallel read and serial write. Use parallel write only when worktree isolation, file ownership, merge strategy, and validation gates are explicit.
 - Use pipeline for staged per-item work. Use parallel barriers only when a downstream step needs all upstream results.
 - Use structured outputs for intermediate results: findings, verdicts, plans, patch proposals, validation results, artifact references, and Runtime target references.
