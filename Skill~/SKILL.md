@@ -42,7 +42,7 @@ Default `harness status` output is compact. Use `--detail full` or `--include-sn
 - In PowerShell, avoid inline complex `--json`; build JSON in a variable or file and pass direct parameters where possible.
 - `focus` is Windows CLI-only. `dialog` is CLI-only and omits dialog fields when no modal dialog is detected.
 - `input` requires Play Mode and an active EventSystem; pair it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
-- `runtime` talks to `AIBridgeRuntime` in a Player or Play Mode target. Run `runtime list_targets` first, then target `latest` or a specific target id.
+- `runtime` talks to `AIBridgeRuntime` in a Player or Play Mode target. Run `runtime list_targets` first, then target `latest` or a specific target id. For UI work, start with `runtime.ui.snapshot`; button entries include screen coordinates and screen rects for direct clicks, and `runtime.input.key` covers semantic submit/cancel/tab/move input.
 - Code Index is optional. For C# semantic lookup use `aibridge-code-index` only when installed and enabled; use `rg`, file reads, and regular AIBridge commands for literal, non-C#, asset, scene, prefab, or unavailable Code Index searches.
 
 ## Related Skills

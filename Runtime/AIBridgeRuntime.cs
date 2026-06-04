@@ -21,7 +21,7 @@ namespace AIBridge.Runtime
     /// AIBridge Runtime MonoBehaviour singleton.
     /// Receives and processes commands from AI Code assistants during Play mode or built Player runtime.
     /// </summary>
-    public class AIBridgeRuntime : MonoBehaviour
+    public partial class AIBridgeRuntime : MonoBehaviour
     {
         private const string RuntimeVersion = "1.0";
         private const string RuntimeDirArgument = "--aibridge-runtime-dir";
@@ -35,6 +35,11 @@ namespace AIBridge.Runtime
         private const string ScreenshotsDirectoryName = "screenshots";
         private const string HeartbeatFileName = "heartbeat.json";
         private const string RuntimeCodeExecuteAction = "runtime.code.execute";
+        private const string RuntimeUiSnapshotAction = "runtime.ui.snapshot";
+        private const string RuntimeUiRaycastAction = "runtime.ui.raycast";
+        private const string RuntimeUiFindAction = "runtime.ui.find";
+        private const string RuntimeUiClickAction = "runtime.ui.click";
+        private const string RuntimeInputKeyAction = "runtime.input.key";
         private const int MaxRuntimeCodeAssemblyBytes = 16 * 1024 * 1024;
         private const int MaxRuntimeCodeResultDepth = 8;
         private const int MaxRuntimeCodeCollectionItems = 512;
@@ -49,6 +54,11 @@ namespace AIBridge.Runtime
             "runtime.perf",
             "runtime.screenshot",
             RuntimeCodeExecuteAction,
+            RuntimeUiSnapshotAction,
+            RuntimeUiRaycastAction,
+            RuntimeUiFindAction,
+            RuntimeUiClickAction,
+            RuntimeInputKeyAction,
             "runtime.handlers"
         };
 
@@ -466,6 +476,21 @@ namespace AIBridge.Runtime
                 case "runtime.screenshot":
                     StartCoroutine(CaptureScreenshot(cmd));
                     asyncStarted = true;
+                    return true;
+                case RuntimeUiSnapshotAction:
+                    result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildUiSnapshotData(cmd));
+                    return true;
+                case RuntimeUiRaycastAction:
+                    result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildUiRaycastData(cmd));
+                    return true;
+                case RuntimeUiFindAction:
+                    result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildUiFindData(cmd));
+                    return true;
+                case RuntimeUiClickAction:
+                    result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildUiClickData(cmd));
+                    return true;
+                case RuntimeInputKeyAction:
+                    result = AIBridgeRuntimeCommandResult.FromSuccess(cmd.Id, BuildUiKeyData(cmd));
                     return true;
                 case RuntimeCodeExecuteAction:
                     return TryHandleRuntimeCodeExecute(cmd, out result, out asyncStarted);
@@ -1273,6 +1298,42 @@ namespace AIBridge.Runtime
                 : defaultValue;
         }
 
+        private static float ReadFloatParam(AIBridgeRuntimeCommand cmd, string key, float defaultValue)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return defaultValue;
+            }
+
+            if (value is float floatValue)
+            {
+                return floatValue;
+            }
+
+            if (value is double doubleValue)
+            {
+                return (float)doubleValue;
+            }
+
+            if (value is int intValue)
+            {
+                return intValue;
+            }
+
+            if (value is long longValue)
+            {
+                return (float)longValue;
+            }
+
+            return float.TryParse(
+                Convert.ToString(value, CultureInfo.InvariantCulture),
+                NumberStyles.Float | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsed)
+                ? parsed
+                : defaultValue;
+        }
+
         private static int? ReadNullableIntParam(AIBridgeRuntimeCommand cmd, string key)
         {
             if (!TryGetCommandParam(cmd, key, out var value) || value == null)
@@ -1293,6 +1354,42 @@ namespace AIBridge.Runtime
             return int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : (int?)null;
+        }
+
+        private static float? ReadNullableFloatParam(AIBridgeRuntimeCommand cmd, string key)
+        {
+            if (!TryGetCommandParam(cmd, key, out var value) || value == null)
+            {
+                return null;
+            }
+
+            if (value is float floatValue)
+            {
+                return floatValue;
+            }
+
+            if (value is double doubleValue)
+            {
+                return (float)doubleValue;
+            }
+
+            if (value is int intValue)
+            {
+                return intValue;
+            }
+
+            if (value is long longValue)
+            {
+                return (float)longValue;
+            }
+
+            return float.TryParse(
+                Convert.ToString(value, CultureInfo.InvariantCulture),
+                NumberStyles.Float | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsed)
+                ? parsed
+                : (float?)null;
         }
 
         private static string ReadStringParam(AIBridgeRuntimeCommand cmd, string key, string defaultValue)
@@ -2232,6 +2329,11 @@ namespace AIBridge.Runtime
                 ["logsClear"] = true,
                 ["runtimeCodeExecute"] = runtimeCodeAvailable,
                 ["runtimeCodeExecuteReason"] = runtimeCodeAvailable ? null : runtimeCodeUnavailableReason,
+                ["uiSnapshot"] = true,
+                ["uiRaycast"] = true,
+                ["uiFind"] = true,
+                ["uiClick"] = true,
+                ["uiKey"] = true,
                 ["file"] = true,
                 ["http"] = _httpTransportServer != null && _httpTransportServer.IsRunning,
                 ["lanDiscovery"] = _lanDiscoveryServer != null && _lanDiscoveryServer.IsRunning,

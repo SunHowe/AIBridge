@@ -19,6 +19,11 @@ namespace AIBridgeCLI.Commands
             "logs",
             "perf",
             "screenshot",
+            "snapshot",
+            "find",
+            "raycast",
+            "click",
+            "key",
             "handlers",
             "diagnose",
             "call"
@@ -76,6 +81,63 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
                 new ParameterInfo("token", "Optional runtime auth token", false)
             },
+            ["snapshot"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
+                new ParameterInfo("maxResults", "Maximum number of button entries", false, "100"),
+                new ParameterInfo("includeDisabled", "Include non-interactable active buttons", false, "false"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
+            ["find"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("keyword", "Filter by button name, label, or path", false),
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
+                new ParameterInfo("maxResults", "Maximum number of matched buttons", false, "100"),
+                new ParameterInfo("includeDisabled", "Include non-interactable active buttons", false, "false"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
+            ["raycast"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("x", "Screen X coordinate", false),
+                new ParameterInfo("y", "Screen Y coordinate", false),
+                new ParameterInfo("path", "Target GameObject path", false),
+                new ParameterInfo("instanceId", "Target GameObject instance ID", false),
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
+                new ParameterInfo("maxResults", "Maximum number of raycast hits", false, "20"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
+            ["click"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("x", "Screen X coordinate", false),
+                new ParameterInfo("y", "Screen Y coordinate", false),
+                new ParameterInfo("path", "Target GameObject path", false),
+                new ParameterInfo("instanceId", "Target GameObject instance ID", false),
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
+            ["key"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("key", "Semantic key name, such as submit, cancel, tab, up, down", true),
+                new ParameterInfo("path", "Target GameObject path", false),
+                new ParameterInfo("instanceId", "Target GameObject instance ID", false),
+                new ParameterInfo("target", "Runtime target id or latest", false, "latest"),
+                new ParameterInfo("runtime-dir", "Runtime exchange directory", false),
+                new ParameterInfo("transport", "Runtime transport: http, file", false, "http"),
+                new ParameterInfo("url", "HTTP runtime base URL, e.g. http://host:27182", false),
+                new ParameterInfo("token", "Optional runtime auth token", false)
+            },
             ["handlers"] = CommonTargetParameters(),
             ["diagnose"] = CommonTargetParameters(),
             ["call"] = new List<ParameterInfo>
@@ -130,6 +192,26 @@ namespace AIBridgeCLI.Commands
                     break;
                 case "screenshot":
                     request.@params["action"] = "runtime.screenshot";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "snapshot":
+                    request.@params["action"] = "runtime.ui.snapshot";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "find":
+                    request.@params["action"] = "runtime.ui.find";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "raycast":
+                    request.@params["action"] = "runtime.ui.raycast";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "click":
+                    request.@params["action"] = "runtime.ui.click";
+                    CopyOptions(request, options, includeJson: false, excludeActionOption: false);
+                    break;
+                case "key":
+                    request.@params["action"] = "runtime.input.key";
                     CopyOptions(request, options, includeJson: false, excludeActionOption: false);
                     break;
                 case "handlers":
