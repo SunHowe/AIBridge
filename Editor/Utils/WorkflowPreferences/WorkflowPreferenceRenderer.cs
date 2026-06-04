@@ -95,20 +95,19 @@ namespace AIBridge.Editor
             builder.AppendLine("```");
             builder.AppendLine();
             builder.AppendLine("- Preflight / Skill Routing 是入口步骤，不是业务模式；它只选择主分支并计算 Skill 状态。");
-            builder.AppendLine("- 如果需求边界、验收标准或方案方向不清晰，先进入需求讨论模式，确认后再继续正式分支选择。");
+            builder.AppendLine("- 如果需求边界、验收标准或方案方向不清晰，先进入需求讨论分支，确认后再继续正式分支选择。");
             builder.AppendLine("- Mode Enter 只激活当前分支真正需要的 Skill，并读取该分支文档。");
             builder.AppendLine("- Mode Exit 生成 `SkillHandoff`，并释放下一模式不需要的模式专用 Skill。");
             builder.AppendLine();
 
-            builder.AppendLine("## 需求讨论模式");
+            builder.AppendLine("## 需求讨论分支");
             builder.AppendLine();
-            builder.AppendLine("需求讨论模式是 Preflight 的前置模式，不是可选主分支。它只在需求不清晰、边界待定、方案方向分歧，或用户要求先分析/先确认时触发。");
+            builder.AppendLine("需求讨论分支是 Preflight 的前置分支，不是可选主分支。它只在需求不清晰、边界待定、方案方向分歧，或用户要求先分析/先确认时触发。");
             builder.AppendLine();
             builder.AppendLine("- 目标是收敛目标、边界、非目标、约束、方案选项和确认结论。");
             builder.AppendLine("- 若用户要求，或项目存在相应功能文档归类，确认后的方案必须先写入 `.aibridge/plan` 工作底稿，再按需同步到正式文档位置。");
             builder.AppendLine("- 默认以 Markdown 工作底稿作为方案源文件；当方案包含流程图、决策树、对比表，或更适合开发者浏览时，再在每个落点目录内同步生成 HTML 展示页。");
             builder.AppendLine("- Markdown 和 HTML 应保持同目录、同 basename；`.aibridge/plan` 负责 AI 续跑和多 agent 协作，正式文档负责 Git review 和对外呈现。");
-            builder.AppendLine("- 需求讨论完成并确认后，再重新执行 Preflight / Skill 路由进入正式主分支。");
             builder.AppendLine();
 
             builder.AppendLine("## 可选主分支");
@@ -153,7 +152,7 @@ namespace AIBridge.Editor
             builder.AppendLine("主分支：<启用分支之一>");
             builder.AppendLine("理由：<进入该分支的依据>");
             builder.AppendLine();
-            builder.AppendLine("【模式：需求讨论模式】");
+            builder.AppendLine("【模式：需求讨论分支】");
             builder.AppendLine("Skills：aibridge-development-workflow");
             builder.AppendLine("已加载规范：requirements.md、risk-gates.md");
             builder.AppendLine("输出目标：收敛需求边界并输出 `.aibridge/plan` 工作底稿。");
@@ -162,9 +161,6 @@ namespace AIBridge.Editor
             builder.AppendLine("Skills：<当前分支 Skills>");
             builder.AppendLine("已加载规范：<当前分支文档>");
             builder.AppendLine("输出目标：<本模式的验收目标>");
-            builder.AppendLine();
-            builder.AppendLine("-> <当前步骤>");
-            builder.AppendLine("<当前步骤正在收集或产出的内容>");
             builder.AppendLine("```");
             builder.AppendLine();
 

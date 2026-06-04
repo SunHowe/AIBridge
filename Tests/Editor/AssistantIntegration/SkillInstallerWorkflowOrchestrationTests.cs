@@ -38,7 +38,7 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
-        public void DevelopmentWorkflowInstallsHarnessReadinessReference()
+        public void WorkflowInstallsHarnessReadinessReference()
         {
             var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
 

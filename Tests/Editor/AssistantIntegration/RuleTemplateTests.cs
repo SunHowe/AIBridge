@@ -128,7 +128,10 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("references/harness-readiness.md", workflowSkill);
             StringAssert.Contains("【入口：Preflight / Skill 路由】", workflowSkill);
             StringAssert.Contains("【模式：调试诊断分支】", workflowSkill);
-            StringAssert.Contains("-> 基线证据收集", workflowSkill);
+            StringAssert.Contains("需求讨论分支", workflowSkill);
+            StringAssert.DoesNotContain("需求讨论模式", workflowSkill);
+            StringAssert.DoesNotContain("-> 基线证据收集", workflowSkill);
+            StringAssert.DoesNotContain("读取日志、Runtime 状态和相关代码入口。", workflowSkill);
             StringAssert.Contains("activeSkills", workflowSkill);
             StringAssert.Contains("快速任务不进入本 Skill", workflowSkill);
             StringAssert.Contains("如误入本 Skill，停止展开分支和 Harness 探测", workflowSkill);
@@ -147,8 +150,10 @@ namespace AIBridge.Editor.Tests
             var branchSelection = File.ReadAllText(branchSelectionPath);
             StringAssert.Contains("【入口：Preflight / Skill 路由】", branchSelection);
             StringAssert.Contains("【模式：<启用分支之一>】", branchSelection);
-            StringAssert.Contains("-> <当前步骤>", branchSelection);
-            StringAssert.Contains("<当前步骤正在收集或产出的内容>", branchSelection);
+            StringAssert.Contains("需求讨论分支", branchSelection);
+            StringAssert.DoesNotContain("需求讨论模式", branchSelection);
+            StringAssert.DoesNotContain("-> <当前步骤>", branchSelection);
+            StringAssert.DoesNotContain("<当前步骤正在收集或产出的内容>", branchSelection);
             Assert.IsFalse(branchSelection.Contains("【任务分流步骤】"));
             Assert.IsFalse(branchSelection.Contains("【分支模式】"));
             Assert.IsFalse(branchSelection.Contains("说明：<当前步骤正在收集或产出的内容>"));

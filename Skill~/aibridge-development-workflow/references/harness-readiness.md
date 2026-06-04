@@ -78,6 +78,8 @@ $CLI harness status --include-snapshot true
 
 外部 harness 或子 agent 输出结构化结果时，优先使用 `aibridge-workflow-orchestration/references/evidence-schema.md` 中的 schema。
 
+常见 schema 包括 `EvidenceRef`、`CommandEvidence`、`Finding`、`Verdict`、`PatchProposal`、`ValidationResult` 和 `SkillHandoff`。
+
 `Finding`、`Verdict`、`PatchProposal`、`ValidationResult` 必须引用 evidence id 或 artifact id，避免粘贴大段日志。
 
 大日志、截图、GIF、性能采样和完整 JSON 结果保存为 artifact，主回复只引用路径或 id。
