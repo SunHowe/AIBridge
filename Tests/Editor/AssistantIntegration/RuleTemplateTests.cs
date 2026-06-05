@@ -24,6 +24,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("{{SKILL_ROOT_RULE}}", template.Body);
             StringAssert.Contains("{{UNITY_VERSION_RULE}}", template.Body);
             StringAssert.Contains("{{CSHARP_VERSION_RULE}}", template.Body);
+            StringAssert.Contains("{{HOST_EXEC_RULE}}", template.Body);
             StringAssert.Contains("{{HARNESS_CAPABILITY_RULE}}", template.Body);
             StringAssert.Contains("{{CODE_INDEX_CAPABILITY_RULE}}", template.Body);
             Assert.IsFalse(template.Body.Contains("{{SKILL_INDEX}}"));
@@ -57,6 +58,11 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("this root rule or the workflow", rootRule);
             StringAssert.Contains("probes harness readiness", rootRule);
             StringAssert.Contains("Harness capability snapshot", rootRule);
+            StringAssert.Contains("Host Exec", rootRule);
+            StringAssert.Contains("$CLI exec run --stdin", rootRule);
+            StringAssert.Contains("$CLI exec batch --stdin", rootRule);
+            StringAssert.Contains("including quick search/display tasks", rootRule);
+            StringAssert.DoesNotContain("In AIBridge workflow tasks", rootRule);
             StringAssert.Contains("without loading `aibridge-development-workflow`", rootRule);
             StringAssert.Contains("simple search/display", rootRule);
             StringAssert.Contains("risk review/validation verdict", rootRule);
@@ -94,6 +100,9 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("不加载 `aibridge-development-workflow`", rootRule);
             StringAssert.Contains("不输出审查/验证/根因结论", rootRule);
             StringAssert.Contains("工作流任务先加载", rootRule);
+            StringAssert.Contains("外部 host 工具", rootRule);
+            StringAssert.Contains("$CLI exec run --stdin", rootRule);
+            StringAssert.Contains("快速查找/显示任务也适用", rootRule);
             Assert.Less(
                 rootRule.IndexOf("**路由原则**", StringComparison.Ordinal),
                 rootRule.IndexOf("**项目版本**", StringComparison.Ordinal));

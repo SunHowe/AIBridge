@@ -15,6 +15,9 @@ $CLI get_logs --logType Error
 $CLI editor log --message "Hello" --logType Warning
 ```
 
+**{{HOST_EXEC_TITLE}}**:
+- {{HOST_EXEC_RULE}}
+
 **{{ROUTING_TITLE}}**:
 - {{QUICK_TASK_RULE}}
 - {{DEVELOPMENT_TASK_RULE}}
