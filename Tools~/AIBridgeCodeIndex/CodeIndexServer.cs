@@ -713,12 +713,24 @@ namespace AIBridgeCodeIndex
 
         private async Task RefreshWorkspaceInBackgroundAsync()
         {
+            var currentWorkspaceBeforeRefresh = GetWorkspace();
+            var preserveSemanticWorkspace = ShouldPreserveSemanticWorkspace(currentWorkspaceBeforeRefresh);
+            var preserveAllAssemblies = preserveSemanticWorkspace && currentWorkspaceBeforeRefresh.LoadedAllAssemblies;
+            var preservedAssemblyIds = preserveSemanticWorkspace && !preserveAllAssemblies
+                ? currentWorkspaceBeforeRefresh.GetLoadedAssemblyIds()
+                : Array.Empty<string>();
             var nextWorkspace = new CodeIndexWorkspace(_options.ProjectRoot);
             CodeIndexWorkspace oldWorkspaceToDispose = null;
             var swapped = false;
             try
             {
                 await nextWorkspace.WarmupAsync();
+                if (preserveSemanticWorkspace)
+                {
+                    // 后台刷新继承旧 workspace 的语义热度，避免编译后把已加载的 Roslyn 数据降级成轻量索引。
+                    await nextWorkspace.WarmupSemanticAsync(preservedAssemblyIds, preserveAllAssemblies);
+                }
+
                 if (_shutdownRequested)
                 {
                     return;
@@ -778,7 +790,7 @@ namespace AIBridgeCodeIndex
                     _queryGate.Release();
                 }
 
-                DisposeWorkspace(oldWorkspaceToDispose);
+                DisposeWorkspace(oldWorkspaceToDispose, trimWorkingSet: !nextWorkspace.HasSemanticWorkspace);
                 oldWorkspaceToDispose = null;
             }
             catch (Exception ex)
@@ -819,7 +831,17 @@ namespace AIBridgeCodeIndex
             RefreshStaleState(GetWorkspace());
         }
 
+        private static bool ShouldPreserveSemanticWorkspace(CodeIndexWorkspace workspace)
+        {
+            return workspace != null && workspace.HasSemanticWorkspace;
+        }
+
         private void DisposeWorkspace(CodeIndexWorkspace workspace)
+        {
+            DisposeWorkspace(workspace, trimWorkingSet: true);
+        }
+
+        private void DisposeWorkspace(CodeIndexWorkspace workspace, bool trimWorkingSet)
         {
             if (workspace == null)
             {
@@ -832,7 +854,7 @@ namespace AIBridgeCodeIndex
                 workspace.Dispose();
                 if (shouldCollect)
                 {
-                    CollectReleasedWorkspaceMemory();
+                    CollectReleasedWorkspaceMemory(trimWorkingSet);
                 }
             }
             catch (Exception ex)
@@ -849,7 +871,7 @@ namespace AIBridgeCodeIndex
                        || workspace.SourceFileCount >= SourceFileCountForForcedMemoryCollection);
         }
 
-        private void CollectReleasedWorkspaceMemory()
+        private void CollectReleasedWorkspaceMemory(bool trimWorkingSet)
         {
             try
             {
@@ -857,7 +879,10 @@ namespace AIBridgeCodeIndex
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
                 GC.WaitForPendingFinalizers();
                 GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-                TrimCurrentProcessWorkingSet();
+                if (trimWorkingSet)
+                {
+                    TrimCurrentProcessWorkingSet();
+                }
             }
             catch (Exception ex)
             {
