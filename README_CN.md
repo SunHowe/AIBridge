@@ -462,4 +462,4 @@ MIT License。详见 [LICENSE](./LICENSE)。
 
 ## 贡献
 
-欢迎提交 issue 和 pull request。修改 Unity 侧行为时，请同步更新相关 CLI 示例、Skill reference 和验证说明。
+欢迎提交 issue 和 pull request。开发规则、验证要求和 PR 清单见 [CONTRIBUTING.md](./CONTRIBUTING.md)。

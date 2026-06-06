@@ -462,4 +462,4 @@ MIT License. See [LICENSE](./LICENSE).
 
 ## Contributing
 
-Issues and pull requests are welcome. When changing Unity-facing behavior, update the relevant CLI examples, Skill references, and validation notes.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for development rules, validation expectations, and pull request checklist.
