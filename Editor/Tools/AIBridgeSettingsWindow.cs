@@ -18,8 +18,6 @@ namespace AIBridge.Editor
             GifSettings,      // GIF 设置
             LogSettings,      // 日志设置
             DirectoryInfo,    // 目录信息
-            SkillInstall,     // Skills 安装
-            SkillLibrary,      // 推荐 Skill 库
             Scripts,          // 脚本执行
             RuntimeBridge,    // Runtime Bridge
             CodeIndex,        // Code Index
@@ -63,7 +61,6 @@ namespace AIBridge.Editor
         private void OnEnable()
         {
             LoadSettings();
-            LoadAssistantIntegrationSelections();
             if (_scriptDirectoryOption == null)
             {
                 _scriptDirectoryOption = new EditorOption<string>("AIBridge_ScriptDirectory", AIBridgeProjectSettings.DefaultScriptDirectory, ReadScriptDirectory, WriteScriptDirectory);
@@ -113,12 +110,6 @@ namespace AIBridge.Editor
                 case TabType.DirectoryInfo:
                     DrawDirectoryInfo();
                     break;
-                case TabType.SkillInstall:
-                    DrawAssistantIntegrationSettings();
-                    break;
-                case TabType.SkillLibrary:
-                    DrawRecommendedSkillLibraryTab();
-                    break;
                 case TabType.Scripts:
                     DrawScriptsTab();
                     break;
@@ -144,8 +135,6 @@ namespace AIBridge.Editor
                 AIBridgeEditorText.T("GIF", "GIF 设置"),
                 AIBridgeEditorText.T("Logs", "日志设置"),
                 AIBridgeEditorText.T("Directories", "目录信息"),
-                AIBridgeEditorText.T("Skills", "Skills 安装"),
-                AIBridgeEditorText.T("Library", "推荐库"),
                 AIBridgeEditorText.T("Scripts", "脚本执行"),
                 AIBridgeEditorText.T("Runtime", "Runtime"),
                 AIBridgeEditorText.T("Code Index", "代码索引"),

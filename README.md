@@ -7,7 +7,7 @@
 English | [中文](./README_CN.md)
 
 ![Unity 2019.4+](https://img.shields.io/badge/Unity-2019.4%2B-black?style=flat-square&logo=unity)
-![Package 1.4.9](https://img.shields.io/badge/Package-1.4.9-5b6cff?style=flat-square)
+![Package 1.4.14](https://img.shields.io/badge/Package-1.4.14-5b6cff?style=flat-square)
 ![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 ![AI Unity Automation](https://img.shields.io/badge/Workflow-AI%20Unity%20Automation-14b8a6?style=flat-square)
 
@@ -26,7 +26,7 @@ When HybridCLR is installed, AIBridge can also compile controlled temporary runt
 | Unity change loop | "Update this Editor panel and verify that Unity still compiles." | Project rules, code lookup, `compile unity`, Console reads | Compile result, Error logs |
 | Prefab / scene inspection | "Check every button prefab for missing click audio and dry-run the fix." | Asset search, prefab hierarchy, Inspector fields, Prefab Patch dry-run | Patch proposal, dry-run report |
 | Play Mode UI validation | "Enter Play Mode, click the inventory button, and confirm that the panel opens." | `input` click/drag/long-press, Game view screenshot, log checks | Screenshot/GIF, Error logs |
-| Player / mobile debugging | "The Android build login button does nothing. Collect evidence." | Runtime discover/status/logs/screenshot/perf, handler calls | Target id, logs, screenshot, perf data |
+| Player / mobile debugging | "The Android build login button does nothing. Collect evidence." | Runtime discover/status/logs/screenshot/perf, UI snapshot/find/click/key, handler calls | Target id, logs, screenshot, perf data |
 | Semantic code understanding | "Find the definition, references, and callers of InventoryItem." | Read-only `code_index`, with explicit text fallback when unavailable | Definition/reference/caller results |
 | Multi-step workflow | "Shard-review Runtime Bridge risks, then run adversarial verification." | Workflow recipes, artifacts, gates, external verdicts, reports | Finding, Verdict, Markdown report |
 | Project-specific extension | "Expose a runtime debug entry for reading inventory state." | Runtime handlers, CLI commands, Skills, workflow recipes | Project-specific AI harness capability |
@@ -41,7 +41,7 @@ Use for: Editor tool changes, Runtime script fixes, Prefab field updates, one-of
 
 ### 2. Play Mode UI automation
 
-Ask the agent to enter Play Mode, use `input` to click, drag, or long-press UGUI/EventSystem UI, then verify the result with logs and screenshots. This is useful for buttons, inventory drag/drop, runtime panels, dialogs, and basic interaction regression.
+Ask the agent to enter Play Mode, use `input` to click, drag, or long-press UGUI/EventSystem UI, then verify the result with logs and screenshots. For Player targets, start with `runtime.ui.snapshot` to discover buttons and their screen coordinates, then use `runtime.ui.click`, `runtime.ui.raycast`, or `runtime.input.key` for direct follow-up actions. This is useful for buttons, inventory drag/drop, runtime panels, dialogs, and basic interaction regression.
 
 Use for: UI bug reproduction, interaction regression, Game view screenshots, and lightweight visual evidence.
 
@@ -62,7 +62,7 @@ Use for: broad read-only review, multi-target Runtime validation, bug-hunter loo
 - **Unity asset and object inspection**: find assets, read scene hierarchies, inspect components and SerializedProperty values, then write through Unity-aware APIs.
 - **Prefab and scene automation**: use simple Inspector field edits, Prefab Patch dry-runs, multi-step batch scripts, and task continuation across domain reloads.
 - **UGUI runtime input simulation**: in Play Mode, the `input` command can click, click Unity screen coordinates, click normalized Unity screen coordinates, drag, and long-press EventSystem UI for button, inventory, and runtime panel checks.
-- **Player Runtime Bridge**: an `AIBridgeRuntime` component inside a built Player can expose runtime status, logs, screenshots, performance samples, project allowlisted handlers, and HybridCLR-gated runtime code execution for Development Build and mobile debugging.
+- **Player Runtime Bridge**: an `AIBridgeRuntime` component inside a built Player can expose runtime status, logs, screenshots, performance samples, UI snapshot/find/raycast/click, semantic key input, project allowlisted handlers, and HybridCLR-gated runtime code execution for Development Build and mobile debugging.
 - **Read-only Code Index**: when enabled, `code_index` starts an IDE-independent daemon that reads Unity compilation snapshots for symbol, definition, reference, implementation, caller, and diagnostic queries. It is disabled by default and reports `semantic=false` when it falls back to text search.
 - **Workflow recipes and run artifacts**: `workflow` CLI commands can list, validate, plan, initialize, and run deterministic CLI steps from built-in Unity workflow recipes, then write a project-local run manifest, command results, artifacts, gates, and Markdown report under `.aibridge/workflows/runs/`.
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
@@ -114,15 +114,17 @@ You can also clone this repository into a Unity project's `Packages` folder.
 
 ## Configure AI Workflow
 
-1. Open `Tools > AIBridge Settings` in Unity Editor.
-2. Open the `Skills Installation` section.
+1. Open `AIBridge/Workflows` in Unity Editor.
+2. Open the `Skills` tab.
 3. Select the AI tools you use.
 4. Click `Install Selected Integrations`.
 5. Optionally click `Install Unity Project AGENTS.md Template` to create a root `AGENTS.md`.
 
-Installed AIBridge Skills are written to each selected tool's default skills directory by default, such as `.codex/skills/` for Codex. You can set a custom directory in the Skills Installation tab, but custom directories may not be discovered automatically by the AI tool. Each AI tool receives a minimal RootRule and, only when needed for a custom directory, a plugin adapter that references the Skill root. The RootRule only includes the fixed CLI path, common commands, Skill root, and `aibridge-development-workflow` entry point; multi-branch routing and targeted checklists live in the workflow Skill. Advanced workflow orchestration guidance is installed as an AIBridge Skill and is loaded only for multi-agent workflow, adversarial verification, recipe, Runtime debug investigation, or Runtime target sweep tasks. Command references are generated under each installed Skill's `references/` directory.
+Installed AIBridge Skills are written to each selected tool's default skills directory by default, such as `.codex/skills/` for Codex. You can set a custom directory in the `Workflows > Skills` tab, but custom directories may not be discovered automatically by the AI tool. Each AI tool receives a minimal RootRule and, only when needed for a custom directory, a plugin adapter that references the Skill root. The RootRule includes the fixed CLI path, common commands, host-tool `exec` routing, Skill root, and `aibridge-development-workflow` entry point; multi-branch routing and targeted checklists live in the workflow Skill. Advanced workflow orchestration guidance is installed as an AIBridge Skill and is loaded only for multi-agent workflow, adversarial verification, recipe, Runtime debug investigation, or Runtime target sweep tasks. Command references are generated under each installed Skill's `references/` directory.
 
-You can also open the `Recommended Skill Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
+You can also open the `Workflows > Recommended Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
+
+`Workflows > Workflow Options` stores project-level workflow preferences. Applying these options refreshes generated files under the installed `aibridge-development-workflow` Skill, including `references/project-workflow-preferences.md` and the generated branch selection rules.
 
 ## CLI And Command Reference
 
@@ -287,6 +289,25 @@ $values = (@{ 'm_LocalPosition.x' = 0; 'm_LocalPosition.y' = 1 } | ConvertTo-Jso
 & "./.aibridge/cli/AIBridgeCLI.exe" inspector set_properties --assetPath 'Assets/Prefabs/Player.prefab' --componentName Transform --values $values
 ```
 
+### External Exec
+
+Use `exec` for shellless external tools such as `rg`, `git`, `dotnet`, `python`, or `node`. Requests are JSON from stdin or a request file; arguments stay as arrays instead of PowerShell strings.
+
+```powershell
+$request = @'
+{
+  "command": "rg",
+  "args": ["-n"],
+  "queries": ["ProcessStartInfo", "ArgumentList"],
+  "globs": ["*.cs"],
+  "paths": ["Packages/cn.lys.aibridge/Tools~/AIBridgeCLI"]
+}
+'@
+$request | & "./.aibridge/cli/AIBridgeCLI.exe" exec run --stdin
+```
+
+For multiple independent commands, send a `jobs` batch. `rg` and `search` requests treat exit code `1` as a successful no-match result.
+
 ### Batch And Multi
 
 ```bash
@@ -340,12 +361,13 @@ Game view screenshots, GIF capture, and `input` commands require Play Mode. Scen
 
 The `runtime` command connects to `AIBridgeRuntime` inside a Player or Play Mode scene. HTTP transport is the default Runtime control plane at `http://127.0.0.1:27182`; if that port is already occupied, Runtime Bridge automatically increments within a small port range and writes the actual URL to the live heartbeat so CLI commands launched from the same project can resolve the correct target. LAN discovery starts at UDP `27183` and auto-increments the same way, so multiple Editors or built Players can run on one machine without sharing a discovery socket. File transport remains available for Editor/local compatibility. Built Players can still pass `--aibridge-runtime-dir <path>` and `--aibridge-target-id <id>` when using file transport.
 
-By default, HTTP `runtime list_targets` checks the project heartbeat/cache and scans the local auto-increment port range, while `runtime discover` broadcasts across the matching UDP range. When several local Players are running, use `runtime list_targets` first and pass the returned target id, for example `runtime status --target AIBridgeDev_12345`; `runtime diagnose --target <id>` resolves and checks that target's actual URL.
+By default, HTTP `runtime list_targets` uses the quick path: it checks the project heartbeat/cache and the configured or explicit URL, but it does not scan the local auto-increment port range. Use `runtime list_targets --probe true` when you need local port scanning, and use `runtime discover` for LAN UDP discovery. When several local Players are running, use `runtime list_targets` first and pass the returned target id, for example `runtime status --target AIBridgeDev_12345`; `runtime diagnose --target <id>` resolves and deeply checks that target's actual URL.
 
-Use `AIBridge/Settings > Runtime` to configure default enablement, HTTP bind/port, LAN discovery, Editor Play Mode auto injection, Development Build auto injection, Release Build allowance, background running, TargetId, auth token, allowed actions, and log buffer size. The settings tab can write `.aibridge/runtime-config.json` so CLI commands can use project defaults. Use `AIBridge/Players` to inspect file heartbeat targets, local HTTP entry, LAN discovery cache, status, scene, platform, and common CLI commands. Stale File/CACHE entries show a `Delete Cache` button so old target directories or discovery-cache entries can be cleaned without touching online Players. Editor Play Mode auto injection is enabled by default, so entering Play Mode creates a temporary hidden `AIBridgeRuntime` when the scene does not already contain one. `Keep Running In Background` is enabled by default for Editor Play Mode and Development Builds so heartbeat and runtime commands keep working after focus loss.
+Use `AIBridge/Settings > Runtime` to configure default enablement, HTTP bind/port, LAN discovery, Editor Play Mode auto injection, Development Build auto injection, Release Build allowance, background running, TargetId, auth token, allowed actions, and log buffer size. The settings tab can write `.aibridge/runtime-config.json` so CLI commands can use project defaults. Use `AIBridge/Players` to inspect file heartbeat targets, local HTTP entry, LAN discovery cache, status, scene, platform, and common CLI commands. Stale File/CACHE entries show a `Delete Cache` button so old target directories or discovery-cache entries can be cleaned without touching online Players. Editor Play Mode auto injection is enabled by default, so entering Play Mode creates a temporary hidden `AIBridgeRuntime` when the scene does not already contain one. `Keep Running In Background` is enabled by default for Editor Play Mode and Development Builds so heartbeat and runtime commands keep working after focus loss. For UI automation, use `runtime.ui.snapshot` first; each button entry includes screen coordinates and screen rects so the next step can click the exact pixel location without extra guessing.
 
 ```bash
 $CLI runtime list_targets
+$CLI runtime list_targets --probe true
 $CLI runtime status --target latest
 $CLI runtime discover
 $CLI runtime diagnose --target latest
@@ -426,6 +448,7 @@ $CLI code cancel
 ```text
 Editor/        Unity Editor commands, settings window, integrations, prefab patching
 Runtime/       Runtime bridge contracts and lightweight runtime data
+Doc~/          Package-level feature docs and functional specifications
 Tools~/       AIBridgeCLI source, CodeIndex daemon source, and bundled platform binaries
 Templates~/   AI root-rule templates and Unity project AGENTS.md template
 Skill~/       AIBridge Skills and workflow references

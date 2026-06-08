@@ -1,39 +1,46 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.Text;
-using System.Threading;
+using System.Linq;
 using UnityEditor;
-using UnityEditor.PackageManager;
 using UnityEngine;
 
 namespace AIBridge.Editor
 {
     public sealed class AIBridgeWorkflowsWindow : EditorWindow
     {
-        private static readonly string[] ExportTargets =
+        private const string GitRepositorySuffix = ".git";
+
+        private enum TabType
         {
-            "codex-task-pack",
-            "generic-cli",
-            "claude-workflow"
-        };
+            Skills,
+            RecommendedLibrary,
+            WorkflowOptions
+        }
+
+        private sealed class AssistantIntegrationSelectionState
+        {
+            public AssistantIntegrationTarget Target { get; set; }
+            public bool IsDetected { get; set; }
+            public string Detail { get; set; }
+            public bool IsSelected { get; set; }
+            public string SkillRootDirectory { get; set; }
+        }
 
         private Vector2 _scrollPosition;
-        private int _tabIndex;
-        private int _selectedRecipeIndex;
-        private int _selectedRunIndex;
-        private int _selectedExportTargetIndex;
-        private readonly List<WorkflowRecipeView> _recipes = new List<WorkflowRecipeView>();
-        private readonly List<WorkflowRunView> _runs = new List<WorkflowRunView>();
-        private string _lastCliOutput;
+        private TabType _currentTab;
+        private List<AssistantIntegrationSelectionState> _assistantIntegrationSelections;
+        private List<RecommendedSkillInfo> _recommendedSkills;
+        private int _selectedRecommendedRepositoryIndex;
+        private string _loadedRecommendedRepositoryId;
+        private string _workflowOptionsApplyMessage;
 
         [MenuItem("Tools/AIBridge/Workflows")]
         public static void OpenWindow()
         {
             var window = GetWindow<AIBridgeWorkflowsWindow>();
             window.titleContent = new GUIContent(AIBridgeEditorText.T("AIBridge Workflows", "AIBridge Workflows"));
-            window.minSize = new Vector2(760, 460);
+            window.minSize = new Vector2(760f, 520f);
             window.Show();
         }
 
@@ -45,573 +52,658 @@ namespace AIBridge.Editor
 
         private void OnEnable()
         {
-            RefreshAll();
+            LoadAssistantIntegrationSelections();
+            Repaint();
         }
 
         private void OnGUI()
         {
+            DrawHeader();
+            EditorGUILayout.Space(6f);
             DrawToolbar();
-            _tabIndex = GUILayout.Toolbar(_tabIndex, GetTabNames());
-            EditorGUILayout.Space(6);
+            EditorGUILayout.Space(6f);
+            DrawTabToolbar();
+            EditorGUILayout.Space(8f);
 
             _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
-            switch (_tabIndex)
+            switch (_currentTab)
             {
-                case 0:
-                    DrawOverview();
+                case TabType.Skills:
+                    DrawSkillsTab();
                     break;
-                case 1:
-                    DrawRecipes();
+                case TabType.RecommendedLibrary:
+                    DrawRecommendedLibraryTab();
                     break;
-                case 2:
-                    DrawRuns();
-                    break;
-                case 3:
-                    DrawArtifacts();
-                    break;
-                case 4:
-                    DrawExports();
-                    break;
-                case 5:
-                    DrawSkills();
-                    break;
-                case 6:
-                    DrawSkillLibrary();
-                    break;
-                case 7:
-                    DrawCleanup();
+                case TabType.WorkflowOptions:
+                    DrawWorkflowOptionsTab();
                     break;
             }
 
-            DrawCliOutput();
             EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawHeader()
+        {
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("AIBridge Workflows", "AIBridge Workflows"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "Use this panel to install workflow Skills, manage the recommended Skill library, and configure project-level workflow preferences for Codex, Claude, Cursor, and similar tools.",
+                    "这个面板用于安装工作流 Skills、管理推荐 Skill 库，并配置面向 Codex、Claude、Cursor 等工具的项目级工作流偏好。"),
+                MessageType.Info);
         }
 
         private void DrawToolbar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            if (GUILayout.Button(AIBridgeEditorText.T("Refresh", "刷新"), EditorStyles.toolbarButton, GUILayout.Width(76)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Refresh", "刷新"), EditorStyles.toolbarButton, GUILayout.Width(76f)))
             {
-                RefreshAll();
+                RefreshWindowState();
             }
 
-            if (GUILayout.Button(AIBridgeEditorText.T("Open Workflow Dir", "打开 Workflow 目录"), EditorStyles.toolbarButton, GUILayout.Width(138)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Open Settings", "打开 Settings"), EditorStyles.toolbarButton, GUILayout.Width(112f)))
             {
-                Directory.CreateDirectory(GetWorkflowRootDirectory());
-                EditorUtility.RevealInFinder(GetWorkflowRootDirectory());
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Copy CLI Root", "复制 CLI 根命令"), EditorStyles.toolbarButton, GUILayout.Width(122)))
-            {
-                CopyCli("workflow list");
+                EditorApplication.ExecuteMenuItem("AIBridge/Settings");
             }
 
             GUILayout.FlexibleSpace();
-            EditorGUILayout.LabelField(
-                AIBridgeEditorText.T("Recipes: ", "Recipe：") + _recipes.Count + "  " + AIBridgeEditorText.T("Runs: ", "Run：") + _runs.Count,
-                EditorStyles.miniLabel,
-                GUILayout.Width(150));
+            EditorGUILayout.LabelField(BuildToolbarSummary(), EditorStyles.miniLabel, GUILayout.Width(320f));
             EditorGUILayout.EndHorizontal();
         }
 
-        private static string[] GetTabNames()
+        private void DrawTabToolbar()
         {
-            return new[]
+            var tabNames = new[]
             {
-                AIBridgeEditorText.T("Overview", "概览"),
-                AIBridgeEditorText.T("Recipes", "Recipes"),
-                AIBridgeEditorText.T("Runs", "Runs"),
-                AIBridgeEditorText.T("Artifacts", "Artifacts"),
-                AIBridgeEditorText.T("Exports", "导出"),
                 AIBridgeEditorText.T("Skills", "Skills"),
-                AIBridgeEditorText.T("Library", "推荐库"),
-                AIBridgeEditorText.T("Cleanup", "清理")
+                AIBridgeEditorText.T("Recommended Library", "推荐库"),
+                AIBridgeEditorText.T("Workflow Options", "Workflow 选项")
             };
+            _currentTab = (TabType)GUILayout.Toolbar((int)_currentTab, tabNames);
         }
 
-        private void DrawOverview()
+        private void DrawSkillsTab()
         {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Overview", "Workflow 概览"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Skills", "Skills"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
-                    "Use this panel to inspect workflow recipes, active runs, artifacts, exports, and AI Skill installation entry points.",
-                    "使用此面板查看 Workflow recipes、active runs、artifacts、导出以及 AI Skill 安装入口。"),
-                MessageType.Info);
+                    "Select the AI tools you use, install the AIBridge workflow integration, and keep project root rules aligned with the current Unity project.",
+                    "选择正在使用的 AI 工具，安装 AIBridge 工作流集成，并让项目根规则与当前 Unity 项目保持一致。"),
+                MessageType.None);
 
-            DrawInfoLine(AIBridgeEditorText.T("Built-in Recipes", "内置 Recipes"), _recipes.Count.ToString());
-            DrawInfoLine(AIBridgeEditorText.T("Run Directory", "Run 目录"), GetRunsDirectory());
-            DrawInfoLine(AIBridgeEditorText.T("Active Run", "Active Run"), ReadActiveRunSummary());
+            EditorGUI.BeginChangeCheck();
+            var autoInstall = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Auto Install Skills", "自动安装 Skills"),
+                AIBridgeProjectSettings.Instance.AutoInstallSkills);
+            if (EditorGUI.EndChangeCheck())
+            {
+                AIBridgeProjectSettings.Instance.AutoInstallSkills = autoInstall;
+                AIBridgeProjectSettings.Instance.SaveSettings();
+            }
 
-            EditorGUILayout.Space(8);
+            DrawCustomSkillRootDirectoryField();
+            EditorGUILayout.Space(8f);
+
+            if (_assistantIntegrationSelections == null)
+            {
+                LoadAssistantIntegrationSelections();
+            }
+
+            foreach (var selection in _assistantIntegrationSelections)
+            {
+                DrawAssistantIntegrationCard(selection);
+            }
+
+            EditorGUILayout.Space(6f);
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Begin Selected Recipe", "开始选中 Recipe"), GUILayout.Height(28)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Select Detected", "选择已检测到")))
             {
-                var recipe = GetSelectedRecipe();
-                if (recipe != null)
-                {
-                    RunCli("workflow begin --file " + Quote(recipe.Path));
-                    RefreshAll();
-                }
+                SelectDetectedTools();
             }
 
-            if (GUILayout.Button(AIBridgeEditorText.T("Finish Active Run", "结束 Active Run"), GUILayout.Height(28)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Select All", "全选")))
             {
-                RunCli("workflow finish --status passed");
-                RefreshAll();
+                SelectAllTools();
             }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Clear", "清空")))
+            {
+                ClearToolSelection();
+            }
+
             EditorGUILayout.EndHorizontal();
-        }
 
-        private void DrawRecipes()
-        {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Recipes", "Workflow Recipes"), EditorStyles.boldLabel);
-            if (_recipes.Count == 0)
+            var selectedCount = _assistantIntegrationSelections.Count(selection => selection.IsSelected);
+            EditorGUILayout.LabelField(
+                AIBridgeEditorText.T($"{selectedCount} tool(s) selected", $"已选择 {selectedCount} 个工具"),
+                EditorStyles.miniLabel);
+
+            EditorGUI.BeginDisabledGroup(selectedCount == 0);
+            if (GUILayout.Button(AIBridgeEditorText.T("Install Selected Integrations", "安装选中集成"), GUILayout.Height(30f)))
             {
-                EditorGUILayout.HelpBox(AIBridgeEditorText.T("No workflow recipes found.", "未找到 workflow recipes。"), MessageType.Warning);
-                return;
+                InstallSelectedTools();
+            }
+            EditorGUI.EndDisabledGroup();
+
+            if (selectedCount == 0)
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Select at least one tool before installing workflow integrations.",
+                        "安装工作流集成前，至少选择一个工具。"),
+                    MessageType.Warning);
             }
 
-            var names = _recipes.ConvertAll(recipe => recipe.Name).ToArray();
-            _selectedRecipeIndex = Mathf.Clamp(_selectedRecipeIndex, 0, names.Length - 1);
-            _selectedRecipeIndex = EditorGUILayout.Popup(AIBridgeEditorText.T("Recipe", "Recipe"), _selectedRecipeIndex, names);
-            var selected = GetSelectedRecipe();
-            if (selected == null)
-            {
-                return;
-            }
-
-            EditorGUILayout.LabelField(selected.Title, EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(selected.Description, EditorStyles.wordWrappedMiniLabel);
-            DrawInfoLine(AIBridgeEditorText.T("Path", "路径"), selected.Path);
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Validate", "校验"), GUILayout.Height(26)))
-            {
-                RunCli("workflow validate --file " + Quote(selected.Path));
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Plan", "生成 Plan"), GUILayout.Height(26)))
-            {
-                RunCli("workflow plan --file " + Quote(selected.Path) + " --format markdown");
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Copy Begin CLI", "复制 Begin 命令"), GUILayout.Height(26)))
-            {
-                CopyCli("workflow begin --file " + Quote(selected.Path));
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawRuns()
-        {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Runs", "Workflow Runs"), EditorStyles.boldLabel);
-            RefreshRunsIfNeeded();
-            if (_runs.Count == 0)
-            {
-                EditorGUILayout.HelpBox(AIBridgeEditorText.T("No workflow runs found.", "未找到 workflow runs。"), MessageType.Info);
-                return;
-            }
-
-            var names = _runs.ConvertAll(run => run.RunId + "  [" + run.Status + "]").ToArray();
-            _selectedRunIndex = Mathf.Clamp(_selectedRunIndex, 0, names.Length - 1);
-            _selectedRunIndex = EditorGUILayout.Popup(AIBridgeEditorText.T("Run", "Run"), _selectedRunIndex, names);
-            var selected = GetSelectedRun();
-            if (selected == null)
-            {
-                return;
-            }
-
-            DrawInfoLine("RunId", selected.RunId);
-            DrawInfoLine(AIBridgeEditorText.T("Recipe", "Recipe"), selected.RecipeName);
-            DrawInfoLine(AIBridgeEditorText.T("Status", "状态"), selected.Status);
-            DrawInfoLine(AIBridgeEditorText.T("Artifacts", "Artifacts"), selected.ArtifactCount.ToString());
-            DrawInfoLine(AIBridgeEditorText.T("Report", "Report"), selected.ReportPath);
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Open Report", "打开 Report"), GUILayout.Height(26)))
-            {
-                OpenPath(selected.ReportPath);
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Attach Active", "设为 Active"), GUILayout.Height(26)))
-            {
-                RunCli("workflow attach --run " + selected.RunId);
-                RefreshAll();
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Copy Status CLI", "复制状态命令"), GUILayout.Height(26)))
-            {
-                CopyCli("workflow status --run " + selected.RunId);
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawArtifacts()
-        {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Run Artifacts", "Run Artifacts"), EditorStyles.boldLabel);
-            var run = GetSelectedRun();
-            if (run == null)
-            {
-                EditorGUILayout.HelpBox(AIBridgeEditorText.T("Select a run on the Runs tab first.", "请先在 Runs 页签选择一个 run。"), MessageType.Info);
-                return;
-            }
-
-            var artifactsDirectory = Path.Combine(run.Directory, "artifacts");
-            if (!Directory.Exists(artifactsDirectory))
-            {
-                EditorGUILayout.HelpBox(AIBridgeEditorText.T("No artifacts directory found.", "未找到 artifacts 目录。"), MessageType.Info);
-                return;
-            }
-
-            foreach (var artifactDirectory in Directory.GetDirectories(artifactsDirectory))
-            {
-                EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-                EditorGUILayout.LabelField(Path.GetFileName(artifactDirectory), EditorStyles.miniLabel);
-                if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(64)))
-                {
-                    EditorUtility.RevealInFinder(artifactDirectory);
-                }
-                EditorGUILayout.EndHorizontal();
-            }
-        }
-
-        private void DrawExports()
-        {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Export", "Workflow 导出"), EditorStyles.boldLabel);
-            var recipe = GetSelectedRecipe();
-            if (recipe == null)
-            {
-                EditorGUILayout.HelpBox(AIBridgeEditorText.T("No recipe selected.", "未选择 recipe。"), MessageType.Info);
-                return;
-            }
-
-            _selectedExportTargetIndex = EditorGUILayout.Popup(
-                AIBridgeEditorText.T("Target", "目标"),
-                Mathf.Clamp(_selectedExportTargetIndex, 0, ExportTargets.Length - 1),
-                ExportTargets);
-            var target = ExportTargets[_selectedExportTargetIndex];
-            DrawInfoLine(AIBridgeEditorText.T("Recipe", "Recipe"), recipe.Name);
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Export", "导出"), GUILayout.Height(28)))
-            {
-                RunCli("workflow export --file " + Quote(recipe.Path) + " --target " + target + " --output " + Quote(Path.Combine(GetWorkflowRootDirectory(), "exports")));
-            }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Copy Export CLI", "复制导出命令"), GUILayout.Height(28)))
-            {
-                CopyCli("workflow export --file " + Quote(recipe.Path) + " --target " + target + " --output " + Quote(Path.Combine(GetWorkflowRootDirectory(), "exports")));
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private void DrawSkills()
-        {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("AIBridge Skills", "AIBridge Skills"), EditorStyles.boldLabel);
+            EditorGUILayout.Space(12f);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Project Rule Template", "项目规则模板"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
-                    "Workflow-related Skill installation lives here. Existing selected assistant integrations are reused.",
-                    "Workflow 相关 Skill 安装入口集中在这里，并复用现有已选择的 AI 工具集成。"),
+                    "Install the Unity project AGENTS.md template into the project root. This is mainly useful for Codex-based workflows and also refreshes the Codex integration once.",
+                    "将 Unity 项目 AGENTS.md 模板安装到项目根目录。它主要服务于基于 Codex 的工作流，并会顺带刷新一次 Codex 集成。"),
                 MessageType.Info);
 
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Install Selected Integrations", "安装选中集成"), GUILayout.Height(28)))
+            if (GUILayout.Button(AIBridgeEditorText.T("Install Unity Project AGENTS.md Template", "安装 Unity 项目 AGENTS.md 模板"), GUILayout.Height(28f)))
             {
-                SkillInstaller.ManualInstall();
+                InstallAgentsFile();
             }
-
-            if (GUILayout.Button(AIBridgeEditorText.T("Open Settings Skills", "打开 Settings Skills"), GUILayout.Height(28)))
-            {
-                EditorApplication.ExecuteMenuItem("AIBridge/Settings");
-            }
-            EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawSkillLibrary()
+        private void DrawRecommendedLibraryTab()
         {
+            var repositories = RecommendedSkillRepositories.GetDefaultRepositories();
             EditorGUILayout.LabelField(AIBridgeEditorText.T("Recommended Skill Library", "推荐 Skill 库"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 AIBridgeEditorText.T(
-                    "Recommended Skill repository operations are available from this workflow surface and reuse the existing installer.",
-                    "推荐 Skill 仓库操作从 Workflow 面板提供入口，并复用现有安装器。"),
+                    "Browse recommended third-party Skills and install them into the currently selected tool directories. Review third-party Skill content before enabling it in your workflow.",
+                    "浏览推荐的第三方 Skills，并把它们安装到当前选中工具的目录。启用到工作流前，请先自行确认第三方 Skill 内容。"),
+                MessageType.None);
+
+            EditorGUILayout.LabelField(
+                AIBridgeEditorText.T("Install Root: ", "安装根目录：") + GetRecommendedSkillInstallRootSummary(),
+                EditorStyles.miniLabel);
+
+            var repositoryNames = repositories.Select(item => item.DisplayName).ToArray();
+            _selectedRecommendedRepositoryIndex = Mathf.Clamp(_selectedRecommendedRepositoryIndex, 0, repositoryNames.Length - 1);
+            _selectedRecommendedRepositoryIndex = EditorGUILayout.Popup(
+                AIBridgeEditorText.T("Repository", "仓库"),
+                _selectedRecommendedRepositoryIndex,
+                repositoryNames);
+
+            var selectedRepository = repositories[_selectedRecommendedRepositoryIndex];
+            if (!string.Equals(_loadedRecommendedRepositoryId, selectedRepository.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                _recommendedSkills = null;
+            }
+
+            EditorGUILayout.LabelField(selectedRepository.RepositoryUrl + "#" + selectedRepository.BranchOrTag, EditorStyles.miniLabel);
+            EditorGUILayout.LabelField(selectedRepository.Description, EditorStyles.wordWrappedMiniLabel);
+
+            EditorGUILayout.Space(5f);
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button(AIBridgeEditorText.T("Refresh Skill List", "刷新 Skill 列表"), GUILayout.Height(28f)))
+            {
+                RefreshRecommendedSkillList(selectedRepository);
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Open Repository", "前往仓库"), GUILayout.Height(28f)))
+            {
+                OpenRepositoryWebPage(selectedRepository);
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Open Install Root", "打开安装目录"), GUILayout.Height(28f)))
+            {
+                OpenRecommendedSkillRootDirectory();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(6f);
+            if (_recommendedSkills == null || _recommendedSkills.Count == 0)
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Click Refresh Skill List to clone the repository and scan available Skills for this workflow panel.",
+                        "点击“刷新 Skill 列表”，拉取仓库并扫描可用于当前工作流面板的 Skills。"),
+                    MessageType.None);
+                return;
+            }
+
+            foreach (var skill in _recommendedSkills)
+            {
+                DrawRecommendedSkillItem(selectedRepository, skill);
+            }
+        }
+
+        private void DrawWorkflowOptionsTab()
+        {
+            var workflowUi = AIBridgeProjectSettings.Instance.WorkflowUi;
+
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Options", "Workflow 选项"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "These options store project-level workflow preferences. They are meant for user-facing workflow setup, not low-level recipe or run debugging.",
+                    "这些选项保存项目级工作流偏好。它们面向用户配置，而不是面向底层 recipe 或 run 调试。"),
+                MessageType.None);
+            DrawWorkflowOptionsApplyMessage();
+
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Enabled Branches", "启用分支"), EditorStyles.boldLabel);
+            DrawWorkflowBranchToggle(
+                AIBridgeEditorText.T("Implementation", "实施"),
+                AIBridgeEditorText.T("Allow change-oriented workflow guidance.", "允许以修改实现为主的工作流引导。"),
+                workflowUi.EnableImplementationBranch,
+                value => workflowUi.EnableImplementationBranch = value);
+            DrawWorkflowBranchToggle(
+                AIBridgeEditorText.T("Debug", "调试"),
+                AIBridgeEditorText.T("Allow diagnosis-oriented workflow guidance.", "允许以问题诊断为主的工作流引导。"),
+                workflowUi.EnableDebugBranch,
+                value => workflowUi.EnableDebugBranch = value);
+            DrawWorkflowBranchToggle(
+                AIBridgeEditorText.T("Review", "审查"),
+                AIBridgeEditorText.T("Allow review-only workflow guidance.", "允许以只读审查为主的工作流引导。"),
+                workflowUi.EnableReviewBranch,
+                value => workflowUi.EnableReviewBranch = value);
+            DrawWorkflowBranchToggle(
+                AIBridgeEditorText.T("Validation", "验证"),
+                AIBridgeEditorText.T("Allow compile, log, and runtime validation workflow guidance.", "允许编译、日志和运行时验证类工作流引导。"),
+                workflowUi.EnableValidationBranch,
+                value => workflowUi.EnableValidationBranch = value);
+            DrawWorkflowBranchToggle(
+                AIBridgeEditorText.T("Orchestration", "编排"),
+                AIBridgeEditorText.T("Allow multi-agent or multi-step orchestration workflow guidance.", "允许多代理或多步骤编排类工作流引导。"),
+                workflowUi.EnableOrchestrationBranch,
+                value => workflowUi.EnableOrchestrationBranch = value);
+
+            EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Defaults", "默认行为"), EditorStyles.boldLabel);
+            DrawWorkflowValidationLevelField(workflowUi);
+
+            EditorGUI.BeginChangeCheck();
+            var preferRuntimeEvidence = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Prefer Runtime Evidence", "优先收集 Runtime 证据"),
+                workflowUi.PreferRuntimeEvidence);
+            if (EditorGUI.EndChangeCheck())
+            {
+                workflowUi.PreferRuntimeEvidence = preferRuntimeEvidence;
+                SaveAndApplyWorkflowOptions();
+            }
+
+            EditorGUI.BeginChangeCheck();
+            var preferCodeIndexGuidance = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Prefer Code Index Guidance", "优先使用 Code Index 指引"),
+                workflowUi.PreferCodeIndexGuidance);
+            if (EditorGUI.EndChangeCheck())
+            {
+                workflowUi.PreferCodeIndexGuidance = preferCodeIndexGuidance;
+                SaveAndApplyWorkflowOptions();
+            }
+
+            EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Prompt Prefixes", "提示词前缀"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "Use short prompt prefixes to bias workflow behavior for a specific assistant. Leave them empty when you want the default routing only.",
+                    "使用简短的提示词前缀为特定 assistant 增加工作流偏好；如果只想使用默认路由，可以留空。"),
                 MessageType.Info);
 
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Open Install Root", "打开安装目录"), GUILayout.Height(28)))
+            EditorGUI.BeginChangeCheck();
+            var sharedPromptPrefix = EditorGUILayout.DelayedTextField(
+                AIBridgeEditorText.T("Shared Prefix", "通用前缀"),
+                workflowUi.SharedPromptPrefix ?? string.Empty);
+            if (EditorGUI.EndChangeCheck())
             {
-                var root = Path.Combine(GetProjectRoot(), RecommendedSkillInstaller.GetPrimaryInstallRootDirectory(GetProjectRoot()));
-                Directory.CreateDirectory(root);
-                EditorUtility.RevealInFinder(root);
+                workflowUi.SharedPromptPrefix = sharedPromptPrefix ?? string.Empty;
+                SaveAndApplyWorkflowOptions();
             }
 
-            if (GUILayout.Button(AIBridgeEditorText.T("Open Settings Library", "打开 Settings 推荐库"), GUILayout.Height(28)))
+            foreach (var target in AssistantIntegrationRegistry.GetTargets())
             {
-                EditorApplication.ExecuteMenuItem("AIBridge/Settings");
+                AIBridgeProjectSettings.Instance.TryGetWorkflowAssistantPromptPrefix(target.Id, out var promptPrefix);
+                EditorGUI.BeginChangeCheck();
+                var updatedPrefix = EditorGUILayout.DelayedTextField(
+                    target.DisplayName,
+                    promptPrefix ?? string.Empty);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    AIBridgeProjectSettings.Instance.SetWorkflowAssistantPromptPrefix(target.Id, updatedPrefix);
+                    SaveAndApplyWorkflowOptions();
+                }
             }
-            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(10f);
+            if (GUILayout.Button(AIBridgeEditorText.T("Apply Workflow Options", "应用 Workflow 选项"), GUILayout.Height(28f)))
+            {
+                SaveAndApplyWorkflowOptions();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset Workflow Options", "重置 Workflow 选项"), GUILayout.Height(28f)))
+            {
+                if (EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Reset Workflow Options", "重置 Workflow 选项"),
+                    AIBridgeEditorText.T(
+                        "Reset workflow options to the package defaults for this project?",
+                        "是否将当前项目的 Workflow 选项重置为包默认值？"),
+                    AIBridgeEditorText.T("Reset", "重置"),
+                    AIBridgeEditorText.T("Cancel", "取消")))
+                {
+                    ResetWorkflowOptions();
+                }
+            }
         }
 
-        private void DrawCleanup()
+        private void DrawAssistantIntegrationCard(AssistantIntegrationSelectionState selection)
         {
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Workflow Cleanup", "Workflow 清理"), EditorStyles.boldLabel);
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(AIBridgeEditorText.T("Dry Run Clean", "清理预览"), GUILayout.Height(28)))
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUI.BeginChangeCheck();
+            var selected = EditorGUILayout.ToggleLeft(selection.Target.DisplayName, selection.IsSelected);
+            if (EditorGUI.EndChangeCheck())
             {
-                RunCli("workflow clean --older-than 30d --dry-run true --keep-failed true --keep-latest 20");
+                selection.IsSelected = selected;
+                AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, selected);
             }
 
-            if (GUILayout.Button(AIBridgeEditorText.T("Copy Clean CLI", "复制清理命令"), GUILayout.Height(28)))
+            var status = selection.IsDetected
+                ? AIBridgeEditorText.T("Detected", "已检测到")
+                : AIBridgeEditorText.T("Not detected", "未检测到");
+            EditorGUILayout.LabelField(status + ": " + selection.Detail, EditorStyles.miniLabel);
+
+            if (selection.Target.SupportsSkillDirectory)
             {
-                CopyCli("workflow clean --older-than 30d --dry-run false --keep-failed true --keep-latest 20");
+                EditorGUILayout.LabelField(
+                    AIBridgeEditorText.T("AIBridge Skill path: ", "AIBridge Skill 路径：") + BuildSkillInstallPreview(selection),
+                    EditorStyles.miniLabel);
             }
-            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
         }
 
-        private void DrawCliOutput()
+        private void DrawCustomSkillRootDirectoryField()
         {
-            if (string.IsNullOrWhiteSpace(_lastCliOutput))
+            EditorGUILayout.Space(4f);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("Custom Skills Directory", "自定义 Skills 目录"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "Leave this empty to install Skills into each selected tool's default directory, such as .codex/skills. Custom directories may not be discovered automatically by the AI tool.",
+                    "留空时会安装到各已选工具的默认目录，例如 .codex/skills。自定义目录可能无法被 AI 工具自动发现。"),
+                MessageType.Warning);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUI.BeginChangeCheck();
+            var newDirectory = EditorGUILayout.DelayedTextField(
+                AIBridgeEditorText.T("Custom Directory", "自定义目录"),
+                AIBridgeProjectSettings.Instance.SkillRootDirectory);
+            if (EditorGUI.EndChangeCheck())
+            {
+                SetCustomSkillRootDirectory(newDirectory);
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Browse", "浏览"), GUILayout.Width(64f)))
+            {
+                BrowseCustomSkillRootDirectory();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(52f)))
+            {
+                OpenCustomSkillRootDirectory();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset", "重置"), GUILayout.Width(52f)))
+            {
+                ResetCustomSkillRootDirectory();
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.LabelField(
+                AIBridgeEditorText.T("Current mode: ", "当前模式：") + GetSkillRootModeText(),
+                EditorStyles.miniLabel);
+        }
+
+        private void DrawRecommendedSkillItem(RecommendedSkillRepository repository, RecommendedSkillInfo skill)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(skill.DisplayName, EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.LabelField(GetInstallStateText(skill.InstallState), EditorStyles.miniLabel, GUILayout.Width(92f));
+            EditorGUILayout.EndHorizontal();
+
+            if (!string.IsNullOrEmpty(skill.Description))
+            {
+                EditorGUILayout.LabelField(skill.Description, EditorStyles.wordWrappedMiniLabel);
+            }
+
+            EditorGUILayout.LabelField(skill.SourceRelativePath, EditorStyles.miniLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            var buttonText = skill.InstallState == RecommendedSkillInstallState.NotInstalled
+                ? AIBridgeEditorText.T("Install", "安装")
+                : AIBridgeEditorText.T("Update", "更新");
+            if (GUILayout.Button(buttonText, GUILayout.Width(96f)))
+            {
+                InstallRecommendedSkill(repository, skill);
+            }
+
+            if (skill.InstallState != RecommendedSkillInstallState.NotInstalled
+                && GUILayout.Button(AIBridgeEditorText.T("Remove", "移除"), GUILayout.Width(96f)))
+            {
+                RemoveRecommendedSkill(repository, skill);
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawWorkflowBranchToggle(string label, string description, bool value, Action<bool> onChanged)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            EditorGUI.BeginChangeCheck();
+            var updatedValue = EditorGUILayout.ToggleLeft(label, value);
+            if (EditorGUI.EndChangeCheck())
+            {
+                if (value && !updatedValue && WorkflowPreferenceRenderer.CountEnabledBranches(AIBridgeProjectSettings.Instance.WorkflowUi) <= 1)
+                {
+                    EditorUtility.DisplayDialog(
+                        AIBridgeEditorText.T("Workflow Branch Required", "需要至少一个 Workflow 分支"),
+                        AIBridgeEditorText.T(
+                            "At least one workflow branch must remain enabled.",
+                            "至少需要保留一个启用的 Workflow 分支。"),
+                        AIBridgeEditorText.T("OK", "确定"));
+                    EditorGUILayout.EndVertical();
+                    return;
+                }
+
+                onChanged(updatedValue);
+                SaveAndApplyWorkflowOptions();
+            }
+
+            EditorGUILayout.LabelField(description, EditorStyles.wordWrappedMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawWorkflowValidationLevelField(AIBridgeProjectSettings.WorkflowUiSettingsData workflowUi)
+        {
+            var validationLevels = AIBridgeProjectSettings.SupportedWorkflowValidationLevels;
+            var labels = new[]
+            {
+                AIBridgeEditorText.T("Compile + Logs", "编译 + 日志"),
+                AIBridgeEditorText.T("Compile Only", "仅编译"),
+                AIBridgeEditorText.T("Compile + Logs + Runtime", "编译 + 日志 + Runtime")
+            };
+
+            var currentValue = AIBridgeProjectSettings.NormalizeWorkflowValidationLevel(workflowUi.DefaultValidationLevel);
+            var currentIndex = Array.IndexOf(validationLevels, currentValue);
+            if (currentIndex < 0)
+            {
+                currentIndex = 0;
+            }
+
+            EditorGUI.BeginChangeCheck();
+            var selectedIndex = EditorGUILayout.Popup(
+                AIBridgeEditorText.T("Default Validation Level", "默认验证级别"),
+                currentIndex,
+                labels);
+            if (EditorGUI.EndChangeCheck())
+            {
+                workflowUi.DefaultValidationLevel = validationLevels[Mathf.Clamp(selectedIndex, 0, validationLevels.Length - 1)];
+                SaveAndApplyWorkflowOptions();
+            }
+        }
+
+        private void DrawWorkflowOptionsApplyMessage()
+        {
+            if (string.IsNullOrEmpty(_workflowOptionsApplyMessage))
             {
                 return;
             }
 
-            EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField(AIBridgeEditorText.T("Last CLI Output", "最近 CLI 输出"), EditorStyles.boldLabel);
-            EditorGUILayout.TextArea(_lastCliOutput, GUILayout.MinHeight(90));
+            EditorGUILayout.HelpBox(_workflowOptionsApplyMessage, MessageType.Info);
         }
 
-        private void RefreshAll()
+        private void RefreshWindowState()
         {
-            RefreshRecipes();
-            RefreshRuns();
+            LoadAssistantIntegrationSelections();
+            _recommendedSkills = null;
+            _loadedRecommendedRepositoryId = null;
             Repaint();
         }
 
-        private void RefreshRecipes()
+        private string BuildToolbarSummary()
         {
-            _recipes.Clear();
-            AddRecipesFromDirectory(GetBuiltInRecipesDirectory(), "builtin");
-            AddRecipesFromDirectory(Path.Combine(GetWorkflowRootDirectory(), "recipes"), "project");
+            var selectedToolCount = _assistantIntegrationSelections == null
+                ? 0
+                : _assistantIntegrationSelections.Count(selection => selection.IsSelected);
+            var installRootSummary = GetSkillRootModeText();
+            return AIBridgeEditorText.T("Selected tools: ", "已选工具：") + selectedToolCount + "    "
+                + AIBridgeEditorText.T("Skill root: ", "Skill 根目录：") + installRootSummary;
         }
 
-        private void RefreshRunsIfNeeded()
+        private void LoadAssistantIntegrationSelections()
         {
-            if (_runs.Count == 0)
+            var projectRoot = GetProjectRoot();
+            var targets = AssistantIntegrationRegistry.GetTargets();
+            var selections = AssistantIntegrationSelectionSettings.LoadSelections(projectRoot, targets);
+
+            _assistantIntegrationSelections = new List<AssistantIntegrationSelectionState>(targets.Count);
+            foreach (var target in targets)
             {
-                RefreshRuns();
-            }
-        }
-
-        private void RefreshRuns()
-        {
-            _runs.Clear();
-            var runsDirectory = GetRunsDirectory();
-            if (!Directory.Exists(runsDirectory))
-            {
-                return;
-            }
-
-            foreach (var directory in Directory.GetDirectories(runsDirectory))
-            {
-                var manifestPath = Path.Combine(directory, "manifest.json");
-                if (!File.Exists(manifestPath))
+                var detection = AssistantIntegrationDetector.Detect(projectRoot, target);
+                _assistantIntegrationSelections.Add(new AssistantIntegrationSelectionState
                 {
-                    continue;
-                }
-
-                var manifest = ReadJson<WorkflowManifestView>(manifestPath);
-                if (manifest == null)
-                {
-                    continue;
-                }
-
-                _runs.Add(new WorkflowRunView
-                {
-                    RunId = manifest.runId,
-                    RecipeName = manifest.recipeName,
-                    Status = manifest.status,
-                    ArtifactCount = manifest.artifactRefs == null ? 0 : manifest.artifactRefs.Length,
-                    Directory = directory,
-                    ReportPath = Path.Combine(directory, "report.md")
+                    Target = target,
+                    IsDetected = detection.IsDetected,
+                    Detail = detection.Detail,
+                    IsSelected = selections.TryGetValue(target.Id, out var isSelected) && isSelected,
+                    SkillRootDirectory = target.GetResolvedSkillRootDirectoryRelativePath(projectRoot)
                 });
             }
-
-            _runs.Sort((left, right) => string.Compare(right.RunId, left.RunId, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void AddRecipesFromDirectory(string directory, string source)
+        private void SetCustomSkillRootDirectory(string directory)
         {
-            if (!Directory.Exists(directory))
+            var previousDirectory = AIBridgeProjectSettings.Instance.SkillRootDirectory;
+            var normalized = NormalizeProjectRelativeDirectory(directory);
+            if (!string.IsNullOrEmpty(normalized) && !IsValidProjectRelativeDirectory(normalized))
+            {
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Invalid Directory", "无效目录"),
+                    AIBridgeEditorText.T("The Skills directory must be a project-relative path.", "Skills 目录必须是项目内相对路径。"),
+                    AIBridgeEditorText.T("OK", "确定"));
+                return;
+            }
+
+            if (AIBridgeProjectSettings.Instance.SkillRootDirectory == normalized)
             {
                 return;
             }
 
-            foreach (var file in Directory.GetFiles(directory, "*.aibridge-workflow.json"))
-            {
-                var recipe = ReadJson<WorkflowRecipeView>(file);
-                if (recipe == null || string.IsNullOrEmpty(recipe.Name))
-                {
-                    continue;
-                }
-
-                recipe.Path = file;
-                recipe.Source = source;
-                _recipes.Add(recipe);
-            }
+            AIBridgeProjectSettings.Instance.SkillRootDirectory = normalized;
+            SaveProjectSettings();
+            RefreshAssistantIntegrationSkillRoots();
+            SkillPluginAdapter.CleanupSkillRootForTargets(GetProjectRoot(), AssistantIntegrationRegistry.GetTargets(), previousDirectory);
+            SkillPluginAdapter.GenerateSelected(GetProjectRoot());
         }
 
-        private void RunCli(string commandBody)
+        private void BrowseCustomSkillRootDirectory()
         {
-            var cliPath = ResolveCliPath();
-            if (string.IsNullOrEmpty(cliPath))
+            var projectRoot = GetProjectRoot();
+            var currentRoot = AIBridgeProjectSettings.Instance.SkillRootDirectory;
+            if (string.IsNullOrEmpty(currentRoot))
             {
-                _lastCliOutput = AIBridgeEditorText.T("AIBridgeCLI was not found.", "未找到 AIBridgeCLI。");
-                return;
+                currentRoot = AIBridgeProjectSettings.LegacySharedSkillRootDirectory;
             }
 
-            try
-            {
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = cliPath,
-                    Arguments = commandBody,
-                    WorkingDirectory = GetProjectRoot(),
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                using (var process = new Process())
-                using (var stdoutDone = new ManualResetEvent(false))
-                using (var stderrDone = new ManualResetEvent(false))
-                {
-                    var stdout = new StringBuilder();
-                    var stderr = new StringBuilder();
-                    process.StartInfo = startInfo;
-                    process.OutputDataReceived += (sender, args) =>
-                    {
-                        if (args.Data == null)
-                        {
-                            stdoutDone.Set();
-                            return;
-                        }
-
-                        stdout.AppendLine(args.Data);
-                    };
-                    process.ErrorDataReceived += (sender, args) =>
-                    {
-                        if (args.Data == null)
-                        {
-                            stderrDone.Set();
-                            return;
-                        }
-
-                        stderr.AppendLine(args.Data);
-                    };
-
-                    if (!process.Start())
-                    {
-                        _lastCliOutput = AIBridgeEditorText.T("Failed to start AIBridgeCLI.", "启动 AIBridgeCLI 失败。");
-                        return;
-                    }
-
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-                    if (!process.WaitForExit(30000))
-                    {
-                        try
-                        {
-                            process.Kill();
-                        }
-                        catch
-                        {
-                            // 忽略清理失败，保留超时信息给面板显示。
-                        }
-
-                        _lastCliOutput = AIBridgeEditorText.T(
-                            "AIBridgeCLI timed out after 30000ms.",
-                            "AIBridgeCLI 执行超过 30000ms，已超时。");
-                        return;
-                    }
-
-                    stdoutDone.WaitOne(1000);
-                    stderrDone.WaitOne(1000);
-                    var stdoutText = stdout.ToString();
-                    var stderrText = stderr.ToString();
-                    _lastCliOutput = stdoutText + (string.IsNullOrWhiteSpace(stderrText) ? string.Empty : "\n" + stderrText);
-                }
-            }
-            catch (Exception ex)
-            {
-                _lastCliOutput = ex.Message;
-            }
-        }
-
-        private void CopyCli(string commandBody)
-        {
-            EditorGUIUtility.systemCopyBuffer = "$CLI " + commandBody;
-            UnityEngine.Debug.Log(AIBridgeEditorText.T("[AIBridge] Workflow CLI command copied.", "[AIBridge] Workflow CLI 命令已复制。"));
-        }
-
-        private WorkflowRecipeView GetSelectedRecipe()
-        {
-            return _recipes.Count == 0 ? null : _recipes[Mathf.Clamp(_selectedRecipeIndex, 0, _recipes.Count - 1)];
-        }
-
-        private WorkflowRunView GetSelectedRun()
-        {
-            return _runs.Count == 0 ? null : _runs[Mathf.Clamp(_selectedRunIndex, 0, _runs.Count - 1)];
-        }
-
-        private static void DrawInfoLine(string label, string value)
-        {
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel, GUILayout.Width(110));
-            EditorGUILayout.SelectableLabel(string.IsNullOrEmpty(value) ? "-" : value, EditorStyles.wordWrappedMiniLabel, GUILayout.Height(18));
-            EditorGUILayout.EndHorizontal();
-        }
-
-        private static void OpenPath(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
+            var currentDirectory = Path.Combine(projectRoot, currentRoot.Replace('/', Path.DirectorySeparatorChar));
+            var selectedDirectory = EditorUtility.OpenFolderPanel(
+                AIBridgeEditorText.T("Select Skills Directory", "选择 Skills 目录"),
+                currentDirectory,
+                string.Empty);
+            if (string.IsNullOrEmpty(selectedDirectory))
             {
                 return;
             }
 
-            if (File.Exists(path))
+            if (!TryMakeProjectRelativeDirectory(projectRoot, selectedDirectory, out var relativeDirectory))
             {
-                EditorUtility.OpenWithDefaultApp(path);
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Invalid Directory", "无效目录"),
+                    AIBridgeEditorText.T("Select a folder inside the project root.", "请选择项目根目录内的文件夹。"),
+                    AIBridgeEditorText.T("OK", "确定"));
+                return;
             }
-            else if (Directory.Exists(path))
+
+            SetCustomSkillRootDirectory(relativeDirectory);
+        }
+
+        private void OpenCustomSkillRootDirectory()
+        {
+            var projectRoot = GetProjectRoot();
+            var root = AIBridgeProjectSettings.Instance.SkillRootDirectory;
+            if (string.IsNullOrEmpty(root))
             {
-                EditorUtility.RevealInFinder(path);
+                root = RecommendedSkillInstaller.GetPrimaryInstallRootDirectory(projectRoot);
+            }
+
+            var directory = Path.Combine(projectRoot, root.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(directory);
+            EditorUtility.RevealInFinder(directory);
+        }
+
+        private void ResetCustomSkillRootDirectory()
+        {
+            SetCustomSkillRootDirectory(AIBridgeProjectSettings.DefaultSkillRootDirectory);
+        }
+
+        private void RefreshAssistantIntegrationSkillRoots()
+        {
+            if (_assistantIntegrationSelections == null)
+            {
+                return;
+            }
+
+            var projectRoot = GetProjectRoot();
+            foreach (var selection in _assistantIntegrationSelections)
+            {
+                selection.SkillRootDirectory = selection.Target.GetResolvedSkillRootDirectoryRelativePath(projectRoot);
             }
         }
 
-        private static string ReadActiveRunSummary()
+        private string BuildSkillInstallPreview(AssistantIntegrationSelectionState selection)
         {
-            var path = Path.Combine(GetWorkflowRootDirectory(), "active-run.json");
-            if (!File.Exists(path))
+            var skillDirectoryName = selection.Target.GetSkillDirectoryName();
+            if (string.IsNullOrEmpty(skillDirectoryName))
             {
-                return AIBridgeEditorText.T("None", "无");
+                return selection.SkillRootDirectory;
             }
 
-            var pointer = ReadJson<ActiveRunView>(path);
-            return pointer == null || string.IsNullOrEmpty(pointer.runId)
-                ? AIBridgeEditorText.T("Invalid active-run.json", "active-run.json 无效")
-                : pointer.runId + " / " + pointer.recipeName;
+            return selection.SkillRootDirectory.TrimEnd('/', '\\') + "/" + skillDirectoryName;
         }
 
-        private static T ReadJson<T>(string path) where T : class
+        private string GetSkillRootModeText()
         {
-            try
+            var customRoot = AIBridgeProjectSettings.Instance.SkillRootDirectory;
+            if (!string.IsNullOrEmpty(customRoot))
             {
-                return JsonUtility.FromJson<T>(File.ReadAllText(path));
+                return AIBridgeEditorText.T("Custom: ", "自定义：") + customRoot;
             }
-            catch
-            {
-                return null;
-            }
+
+            return AIBridgeEditorText.T("Automatic per tool default directories", "自动使用各工具默认目录");
         }
 
         private static string GetProjectRoot()
@@ -619,104 +711,303 @@ namespace AIBridge.Editor
             return Path.GetDirectoryName(Application.dataPath);
         }
 
-        private static string GetWorkflowRootDirectory()
+        private static string NormalizeProjectRelativeDirectory(string directory)
         {
-            return Path.Combine(GetProjectRoot(), ".aibridge", "workflows");
+            return string.IsNullOrWhiteSpace(directory)
+                ? string.Empty
+                : directory.Trim().Replace('\\', '/').Trim('/');
         }
 
-        private static string GetRunsDirectory()
+        private static bool IsValidProjectRelativeDirectory(string directory)
         {
-            return Path.Combine(GetWorkflowRootDirectory(), "runs");
+            return !string.IsNullOrEmpty(directory)
+                && !Path.IsPathRooted(directory)
+                && !directory.Split('/').Any(part => part == "..");
         }
 
-        private static string GetBuiltInRecipesDirectory()
+        private static bool TryMakeProjectRelativeDirectory(string projectRoot, string selectedDirectory, out string relativeDirectory)
         {
-            const string packageName = "cn.lys.aibridge";
-            var embedded = Path.Combine(GetProjectRoot(), "Packages", packageName, "Templates~", "Workflows");
-            if (Directory.Exists(embedded))
+            relativeDirectory = null;
+            var projectFullPath = Path.GetFullPath(projectRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var selectedFullPath = Path.GetFullPath(selectedDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (!selectedFullPath.StartsWith(projectFullPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(selectedFullPath, projectFullPath, StringComparison.OrdinalIgnoreCase))
             {
-                return embedded;
+                return false;
             }
 
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + packageName);
-            return packageInfo == null
-                ? embedded
-                : Path.Combine(packageInfo.resolvedPath, "Templates~", "Workflows");
+            var relative = selectedFullPath.Length == projectFullPath.Length
+                ? string.Empty
+                : selectedFullPath.Substring(projectFullPath.Length + 1);
+            relativeDirectory = NormalizeProjectRelativeDirectory(relative);
+            return IsValidProjectRelativeDirectory(relativeDirectory);
         }
 
-        private static string ResolveCliPath()
+        private void SelectDetectedTools()
         {
-            var cli = AIBridgeCodeIndexEditorUtility.ResolveCliPath();
-            return string.IsNullOrEmpty(cli) ? null : cli;
-        }
-
-        private static string Quote(string value)
-        {
-            if (string.IsNullOrEmpty(value))
+            foreach (var selection in _assistantIntegrationSelections)
             {
-                return "\"\"";
-            }
-
-            return value.IndexOfAny(new[] { ' ', '\t', '"' }) < 0
-                ? value
-                : "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
-        }
-
-        [Serializable]
-        private sealed class WorkflowRecipeView
-        {
-            public string name;
-            public string title;
-            public string description;
-            public string Path { get; set; }
-            public string Source { get; set; }
-
-            public string Name
-            {
-                get { return string.IsNullOrEmpty(name) ? Path : name; }
-            }
-
-            public string Title
-            {
-                get { return string.IsNullOrEmpty(title) ? Name : title; }
-            }
-
-            public string Description
-            {
-                get { return description ?? string.Empty; }
+                selection.IsSelected = selection.IsDetected;
+                AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, selection.IsSelected);
             }
         }
 
-        [Serializable]
-        private sealed class WorkflowManifestView
+        private void SelectAllTools()
         {
-            public string runId;
-            public string recipeName;
-            public string status;
-            public ArtifactView[] artifactRefs;
+            foreach (var selection in _assistantIntegrationSelections)
+            {
+                selection.IsSelected = true;
+                AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, true);
+            }
         }
 
-        [Serializable]
-        private sealed class ArtifactView
+        private void ClearToolSelection()
         {
-            public string artifactId;
+            foreach (var selection in _assistantIntegrationSelections)
+            {
+                selection.IsSelected = false;
+                AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, false);
+            }
         }
 
-        [Serializable]
-        private sealed class ActiveRunView
+        private void SelectSingleTool(string targetId)
         {
-            public string runId;
-            public string recipeName;
+            foreach (var selection in _assistantIntegrationSelections)
+            {
+                var selected = string.Equals(selection.Target.Id, targetId, StringComparison.OrdinalIgnoreCase);
+                selection.IsSelected = selected;
+                AssistantIntegrationSelectionSettings.SetSelected(selection.Target.Id, selected);
+            }
         }
 
-        private sealed class WorkflowRunView
+        private void InstallSelectedTools()
         {
-            public string RunId { get; set; }
-            public string RecipeName { get; set; }
-            public string Status { get; set; }
-            public int ArtifactCount { get; set; }
-            public string Directory { get; set; }
-            public string ReportPath { get; set; }
+            var selectedTargetIds = _assistantIntegrationSelections
+                .Where(selection => selection.IsSelected)
+                .Select(selection => selection.Target.Id)
+                .ToArray();
+
+            SkillInstaller.ManualInstallSelected(selectedTargetIds);
+            LoadAssistantIntegrationSelections();
+        }
+
+        private void InstallAgentsFile()
+        {
+            var projectRoot = GetProjectRoot();
+            var targetPath = Path.Combine(projectRoot, "AGENTS.md");
+
+            if (File.Exists(targetPath)
+                && !EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Confirm Overwrite", "确认覆盖"),
+                    AIBridgeEditorText.T("AGENTS.md already exists in the project root. Overwrite it?", "项目根目录已存在 AGENTS.md 文件，是否覆盖？"),
+                    AIBridgeEditorText.T("Overwrite", "覆盖"),
+                    AIBridgeEditorText.T("Cancel", "取消")))
+            {
+                return;
+            }
+
+            var sourcePath = AIBridgeSettingsWindow.GetSourceAgentsPath();
+            if (string.IsNullOrEmpty(sourcePath))
+            {
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Install Failed", "安装失败"),
+                    AIBridgeEditorText.T(
+                        "Unity project AGENTS.md template was not found.\nExpected location: Packages/cn.lys.aibridge/" + AIBridgeSettingsWindow.GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage),
+                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：Packages/cn.lys.aibridge/" + AIBridgeSettingsWindow.GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage)),
+                    AIBridgeEditorText.T("OK", "确定"));
+                return;
+            }
+
+            try
+            {
+                var content = File.ReadAllText(sourcePath, System.Text.Encoding.UTF8);
+                content = SkillInstaller.ApplyProjectVersionTokens(content);
+                File.WriteAllText(targetPath, content, System.Text.Encoding.UTF8);
+
+                SelectSingleTool("codex");
+                InstallSelectedTools();
+
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Install Complete", "安装成功"),
+                    AIBridgeEditorText.T(
+                        "Unity project AGENTS.md template was installed to the project root.\n\nCodex integration has also run once.",
+                        "Unity 项目 AGENTS.md 模板已成功安装到项目根目录。\n\n已自动执行一次 Codex 集成安装。"),
+                    AIBridgeEditorText.T("OK", "确定"));
+            }
+            catch (Exception ex)
+            {
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Install Failed", "安装失败"),
+                    AIBridgeEditorText.T($"Failed to copy AGENTS.md:\n{ex.Message}", $"拷贝 AGENTS.md 时发生错误：\n{ex.Message}"),
+                    AIBridgeEditorText.T("OK", "确定"));
+            }
+        }
+
+        private void RefreshRecommendedSkillList(RecommendedSkillRepository repository)
+        {
+            try
+            {
+                _recommendedSkills = RecommendedSkillInstaller.RefreshRepository(GetProjectRoot(), repository);
+                _loadedRecommendedRepositoryId = repository.Id;
+                Repaint();
+            }
+            catch (Exception ex)
+            {
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Refresh Failed", "刷新失败"),
+                    ex.Message,
+                    AIBridgeEditorText.T("OK", "确定"));
+            }
+        }
+
+        private void InstallRecommendedSkill(RecommendedSkillRepository repository, RecommendedSkillInfo skill)
+        {
+            var targetDirectory = Path.Combine(GetProjectRoot(), RecommendedSkillInstaller.GetPrimaryInstallRootDirectory(GetProjectRoot()), skill.Name);
+            var overwrite = true;
+            if (Directory.Exists(targetDirectory))
+            {
+                overwrite = EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Confirm Install", "确认安装"),
+                    AIBridgeEditorText.T(
+                        "Target skill already exists. Overwrite it?\n\n" + targetDirectory,
+                        "目标 Skill 已存在，是否覆盖？\n\n" + targetDirectory),
+                    AIBridgeEditorText.T("Overwrite", "覆盖"),
+                    AIBridgeEditorText.T("Cancel", "取消"));
+            }
+
+            if (!overwrite)
+            {
+                return;
+            }
+
+            var result = RecommendedSkillInstaller.Install(GetProjectRoot(), repository, skill, true);
+            if (result.Success)
+            {
+                RefreshRecommendedSkillList(repository);
+            }
+
+            EditorUtility.DisplayDialog(
+                result.Success
+                    ? AIBridgeEditorText.T("Install Complete", "安装成功")
+                    : AIBridgeEditorText.T("Install Failed", "安装失败"),
+                result.Success
+                    ? result.Message + "\n" + result.InstalledDirectory
+                    : result.Message,
+                AIBridgeEditorText.T("OK", "确定"));
+        }
+
+        private void RemoveRecommendedSkill(RecommendedSkillRepository repository, RecommendedSkillInfo skill)
+        {
+            var targetDirectory = Path.Combine(GetProjectRoot(), RecommendedSkillInstaller.GetPrimaryInstallRootDirectory(GetProjectRoot()), skill.Name);
+            if (!EditorUtility.DisplayDialog(
+                AIBridgeEditorText.T("Confirm Remove", "确认移除"),
+                AIBridgeEditorText.T(
+                    "Remove this installed Skill?\n\n" + targetDirectory,
+                    "是否移除这个已安装 Skill？\n\n" + targetDirectory),
+                AIBridgeEditorText.T("Remove", "移除"),
+                AIBridgeEditorText.T("Cancel", "取消")))
+            {
+                return;
+            }
+
+            var result = RecommendedSkillInstaller.Remove(GetProjectRoot(), skill);
+            if (result.Success)
+            {
+                RefreshRecommendedSkillList(repository);
+            }
+
+            EditorUtility.DisplayDialog(
+                result.Success
+                    ? AIBridgeEditorText.T("Remove Complete", "移除成功")
+                    : AIBridgeEditorText.T("Remove Failed", "移除失败"),
+                result.Success
+                    ? result.Message + "\n" + result.InstalledDirectory
+                    : result.Message,
+                AIBridgeEditorText.T("OK", "确定"));
+        }
+
+        private void OpenRecommendedSkillRootDirectory()
+        {
+            var directory = Path.Combine(GetProjectRoot(), RecommendedSkillInstaller.GetPrimaryInstallRootDirectory(GetProjectRoot()));
+            if (!Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            EditorUtility.RevealInFinder(directory);
+        }
+
+        private string GetRecommendedSkillInstallRootSummary()
+        {
+            var roots = RecommendedSkillInstaller.GetSelectedInstallRootDirectories(GetProjectRoot());
+            return string.Join("; ", roots.ToArray());
+        }
+
+        private static void OpenRepositoryWebPage(RecommendedSkillRepository repository)
+        {
+            if (repository == null || string.IsNullOrEmpty(repository.RepositoryUrl))
+            {
+                return;
+            }
+
+            Application.OpenURL(GetRepositoryWebUrl(repository.RepositoryUrl));
+        }
+
+        private static string GetRepositoryWebUrl(string repositoryUrl)
+        {
+            return repositoryUrl.EndsWith(GitRepositorySuffix, StringComparison.OrdinalIgnoreCase)
+                ? repositoryUrl.Substring(0, repositoryUrl.Length - GitRepositorySuffix.Length)
+                : repositoryUrl;
+        }
+
+        private static string GetInstallStateText(RecommendedSkillInstallState state)
+        {
+            switch (state)
+            {
+                case RecommendedSkillInstallState.Installed:
+                    return AIBridgeEditorText.T("Installed", "已安装");
+                case RecommendedSkillInstallState.UpdateAvailable:
+                    return AIBridgeEditorText.T("Update", "可更新");
+                default:
+                    return AIBridgeEditorText.T("Not installed", "未安装");
+            }
+        }
+
+        private void ResetWorkflowOptions()
+        {
+            var workflowUi = AIBridgeProjectSettings.Instance.WorkflowUi;
+            workflowUi.EnableImplementationBranch = AIBridgeProjectSettings.DefaultWorkflowImplementationBranchEnabled;
+            workflowUi.EnableDebugBranch = AIBridgeProjectSettings.DefaultWorkflowDebugBranchEnabled;
+            workflowUi.EnableReviewBranch = AIBridgeProjectSettings.DefaultWorkflowReviewBranchEnabled;
+            workflowUi.EnableValidationBranch = AIBridgeProjectSettings.DefaultWorkflowValidationBranchEnabled;
+            workflowUi.EnableOrchestrationBranch = AIBridgeProjectSettings.DefaultWorkflowOrchestrationBranchEnabled;
+            workflowUi.DefaultValidationLevel = AIBridgeProjectSettings.DefaultWorkflowValidationLevel;
+            workflowUi.PreferRuntimeEvidence = AIBridgeProjectSettings.DefaultWorkflowPreferRuntimeEvidence;
+            workflowUi.PreferCodeIndexGuidance = AIBridgeProjectSettings.DefaultWorkflowPreferCodeIndexGuidance;
+            workflowUi.SharedPromptPrefix = AIBridgeProjectSettings.DefaultWorkflowSharedPromptPrefix;
+            workflowUi.AssistantPromptPrefixes.Clear();
+            SaveAndApplyWorkflowOptions();
+            Repaint();
+        }
+
+        private static void SaveProjectSettings()
+        {
+            AIBridgeProjectSettings.Instance.SaveSettings();
+        }
+
+        private void SaveAndApplyWorkflowOptions()
+        {
+            AIBridgeProjectSettings.Instance.SaveSettings();
+            var generatedFiles = SkillInstaller.GenerateWorkflowPreferenceFilesForSelectedTargets(GetProjectRoot());
+            _workflowOptionsApplyMessage = generatedFiles.Count > 0
+                ? AIBridgeEditorText.T(
+                    "Workflow options saved and applied to installed Skills: " + generatedFiles.Count + " generated file(s).",
+                    "Workflow 选项已保存，并已应用到已安装 Skills：" + generatedFiles.Count + " 个生成文件。")
+                : AIBridgeEditorText.T(
+                    "Workflow options saved. Install selected integrations before these preferences can affect assistant Skills.",
+                    "Workflow 选项已保存。需要先安装选中集成，这些偏好才会影响 assistant Skills。");
+            Repaint();
         }
     }
 }

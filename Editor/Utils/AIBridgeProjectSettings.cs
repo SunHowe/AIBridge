@@ -98,7 +98,29 @@ namespace AIBridge.Editor
             public string IgnoredSourcePathPatterns = DefaultCodeIndexIgnoredSourcePathPatterns;
         }
 
-        public const int CurrentDataVersion = 16;
+        [Serializable]
+        internal sealed class AssistantWorkflowPromptEntry
+        {
+            public string TargetId;
+            public string PromptPrefix = string.Empty;
+        }
+
+        [Serializable]
+        internal sealed class WorkflowUiSettingsData
+        {
+            public bool EnableImplementationBranch = DefaultWorkflowImplementationBranchEnabled;
+            public bool EnableDebugBranch = DefaultWorkflowDebugBranchEnabled;
+            public bool EnableReviewBranch = DefaultWorkflowReviewBranchEnabled;
+            public bool EnableValidationBranch = DefaultWorkflowValidationBranchEnabled;
+            public bool EnableOrchestrationBranch = DefaultWorkflowOrchestrationBranchEnabled;
+            public string DefaultValidationLevel = DefaultWorkflowValidationLevel;
+            public bool PreferRuntimeEvidence = DefaultWorkflowPreferRuntimeEvidence;
+            public bool PreferCodeIndexGuidance = DefaultWorkflowPreferCodeIndexGuidance;
+            public string SharedPromptPrefix = DefaultWorkflowSharedPromptPrefix;
+            public List<AssistantWorkflowPromptEntry> AssistantPromptPrefixes = new List<AssistantWorkflowPromptEntry>();
+        }
+
+        public const int CurrentDataVersion = 18;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
@@ -138,8 +160,18 @@ namespace AIBridge.Editor
         public const bool DefaultCodeIndexIncludePackageCacheSourceAssemblies = false;
         public const string DefaultCodeIndexIgnoredAssemblyPatterns = "";
         public const string DefaultCodeIndexIgnoredSourcePathPatterns = "";
+        public const bool DefaultWorkflowImplementationBranchEnabled = true;
+        public const bool DefaultWorkflowDebugBranchEnabled = true;
+        public const bool DefaultWorkflowReviewBranchEnabled = true;
+        public const bool DefaultWorkflowValidationBranchEnabled = true;
+        public const bool DefaultWorkflowOrchestrationBranchEnabled = true;
+        public const string DefaultWorkflowValidationLevel = "compileAndLogs";
+        public const bool DefaultWorkflowPreferRuntimeEvidence = false;
+        public const bool DefaultWorkflowPreferCodeIndexGuidance = true;
+        public const string DefaultWorkflowSharedPromptPrefix = "";
         public static readonly string[] SupportedCodeIndexCleanupModes = { "processOnly", "processAndTemp", "fullCleanup" };
         public static readonly string[] SupportedLogRetrievalTypes = { "all", "Log", "Warning", "Error" };
+        public static readonly string[] SupportedWorkflowValidationLevels = { "compileAndLogs", "compileOnly", "compileLogsAndRuntime" };
 
         [SerializeField] private int dataVersion = CurrentDataVersion;
         [SerializeField] private bool bridgeEnabled = true;
@@ -159,6 +191,7 @@ namespace AIBridge.Editor
         [SerializeField] private bool codeExecutionRiskAccepted = DefaultCodeExecutionRiskAccepted;
         [SerializeField] private RuntimeBridgeSettingsData runtimeBridge = new RuntimeBridgeSettingsData();
         [SerializeField] private CodeIndexSettingsData codeIndex = new CodeIndexSettingsData();
+        [SerializeField] private WorkflowUiSettingsData workflowUi = new WorkflowUiSettingsData();
 
         public static AIBridgeProjectSettings Instance
         {
@@ -436,6 +469,38 @@ namespace AIBridge.Editor
             }
         }
 
+        public WorkflowUiSettingsData WorkflowUi
+        {
+            get
+            {
+                if (workflowUi == null)
+                {
+                    workflowUi = new WorkflowUiSettingsData();
+                }
+
+                if (string.IsNullOrWhiteSpace(workflowUi.DefaultValidationLevel))
+                {
+                    workflowUi.DefaultValidationLevel = DefaultWorkflowValidationLevel;
+                }
+                else
+                {
+                    workflowUi.DefaultValidationLevel = NormalizeWorkflowValidationLevel(workflowUi.DefaultValidationLevel);
+                }
+
+                if (workflowUi.SharedPromptPrefix == null)
+                {
+                    workflowUi.SharedPromptPrefix = DefaultWorkflowSharedPromptPrefix;
+                }
+
+                if (workflowUi.AssistantPromptPrefixes == null)
+                {
+                    workflowUi.AssistantPromptPrefixes = new List<AssistantWorkflowPromptEntry>();
+                }
+
+                return workflowUi;
+            }
+        }
+
         public static string NormalizeCodeIndexCleanupMode(string cleanupMode)
         {
             if (string.IsNullOrEmpty(cleanupMode))
@@ -453,6 +518,25 @@ namespace AIBridge.Editor
             }
 
             return DefaultCodeIndexCleanupModeOnQuit;
+        }
+
+        public static string NormalizeWorkflowValidationLevel(string validationLevel)
+        {
+            if (string.IsNullOrEmpty(validationLevel))
+            {
+                return DefaultWorkflowValidationLevel;
+            }
+
+            for (var i = 0; i < SupportedWorkflowValidationLevels.Length; i++)
+            {
+                var supportedLevel = SupportedWorkflowValidationLevels[i];
+                if (string.Equals(supportedLevel, validationLevel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return supportedLevel;
+                }
+            }
+
+            return DefaultWorkflowValidationLevel;
         }
 
         public bool TryGetAssistantSelection(string targetId, out bool selected)
@@ -614,6 +698,86 @@ namespace AIBridge.Editor
             return false;
         }
 
+        public bool TryGetWorkflowAssistantPromptPrefix(string targetId, out string promptPrefix)
+        {
+            promptPrefix = string.Empty;
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var entries = WorkflowUi.AssistantPromptPrefixes;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId)
+                {
+                    promptPrefix = entry.PromptPrefix ?? string.Empty;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool SetWorkflowAssistantPromptPrefix(string targetId, string promptPrefix)
+        {
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var normalized = promptPrefix ?? string.Empty;
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return ClearWorkflowAssistantPromptPrefix(targetId);
+            }
+
+            var entries = WorkflowUi.AssistantPromptPrefixes;
+            for (var i = 0; i < entries.Count; i++)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId)
+                {
+                    if ((entry.PromptPrefix ?? string.Empty) == normalized)
+                    {
+                        return false;
+                    }
+
+                    entry.PromptPrefix = normalized;
+                    return true;
+                }
+            }
+
+            entries.Add(new AssistantWorkflowPromptEntry
+            {
+                TargetId = targetId,
+                PromptPrefix = normalized
+            });
+            return true;
+        }
+
+        public bool ClearWorkflowAssistantPromptPrefix(string targetId)
+        {
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return false;
+            }
+
+            var entries = WorkflowUi.AssistantPromptPrefixes;
+            for (var i = entries.Count - 1; i >= 0; i--)
+            {
+                var entry = entries[i];
+                if (entry != null && entry.TargetId == targetId)
+                {
+                    entries.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static string NormalizeSkillRootDirectory(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -689,6 +853,11 @@ namespace AIBridge.Editor
                 codeIndex = new CodeIndexSettingsData();
             }
 
+            if (workflowUi == null)
+            {
+                workflowUi = new WorkflowUiSettingsData();
+            }
+
             if (dataVersion < 10)
             {
                 runtimeBridge.AutoInjectRuntimeBridgeInDevelopmentBuild = DefaultRuntimeBridgeAutoInjectInDevelopmentBuild;
@@ -734,6 +903,30 @@ namespace AIBridge.Editor
                 codeIndex.IncludePackageCacheSourceAssemblies = DefaultCodeIndexIncludePackageCacheSourceAssemblies;
                 codeIndex.IgnoredAssemblyPatterns = DefaultCodeIndexIgnoredAssemblyPatterns;
                 codeIndex.IgnoredSourcePathPatterns = DefaultCodeIndexIgnoredSourcePathPatterns;
+            }
+
+            if (dataVersion < 17)
+            {
+                workflowUi.EnableImplementationBranch = DefaultWorkflowImplementationBranchEnabled;
+                workflowUi.EnableDebugBranch = DefaultWorkflowDebugBranchEnabled;
+                workflowUi.EnableReviewBranch = DefaultWorkflowReviewBranchEnabled;
+                workflowUi.EnableValidationBranch = DefaultWorkflowValidationBranchEnabled;
+                workflowUi.EnableOrchestrationBranch = DefaultWorkflowOrchestrationBranchEnabled;
+                workflowUi.DefaultValidationLevel = DefaultWorkflowValidationLevel;
+                workflowUi.PreferRuntimeEvidence = DefaultWorkflowPreferRuntimeEvidence;
+                workflowUi.PreferCodeIndexGuidance = DefaultWorkflowPreferCodeIndexGuidance;
+                workflowUi.SharedPromptPrefix = DefaultWorkflowSharedPromptPrefix;
+            }
+
+            workflowUi.DefaultValidationLevel = NormalizeWorkflowValidationLevel(workflowUi.DefaultValidationLevel);
+            if (workflowUi.SharedPromptPrefix == null)
+            {
+                workflowUi.SharedPromptPrefix = DefaultWorkflowSharedPromptPrefix;
+            }
+
+            if (workflowUi.AssistantPromptPrefixes == null)
+            {
+                workflowUi.AssistantPromptPrefixes = new List<AssistantWorkflowPromptEntry>();
             }
 
             if (dataVersion != CurrentDataVersion)

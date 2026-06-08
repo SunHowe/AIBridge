@@ -1,11 +1,11 @@
 ---
 name: unity-yaml-editing
-description: Unity YAML text serialization editing workflow. Use when Codex needs to directly inspect, modify, create, or repair Unity serialized YAML files such as .unity scenes, .prefab assets, .asset ScriptableObject/config files, .mat, .controller, or other text-serialized Unity assets, especially when AIBridge inspector/prefab/scene APIs do not support the requested Prefab, Scene, ScriptableObjectTable, or custom asset operation.
+description: Unity YAML text serialization editing workflow. Use when Codex needs to directly inspect, modify, create, or repair Unity serialized YAML files such as .unity scenes, .prefab assets, .asset ScriptableObject/config files, .mat, .controller, or other text-serialized Unity assets, especially when AIBridge inspector/prefab/scene APIs do not support the requested Prefab, Scene, ScriptableObjectTable, or custom asset operation
 ---
 
 # Unity YAML Editing
 
-Use this Skill only after considering Unity/AIBridge APIs. UnityYAML is fragile; direct text edits are the fallback for unsupported serialized asset operations, deterministic repair work, and rare text-serialized asset authoring that AIBridge/Unity APIs cannot express.
+Load this Skill only after considering Unity/AIBridge APIs. UnityYAML is fragile, and direct text edits are the fallback for unsupported serialized asset operations, deterministic repair work, and rare text-serialized asset authoring that AIBridge/Unity APIs cannot express
 
 ## Decision Order
 
@@ -40,4 +40,4 @@ Use this Skill only after considering Unity/AIBridge APIs. UnityYAML is fragile;
 
 ## Reference
 
-- `references/unity-yaml-reference.md`: detailed UnityYAML format, editing patterns, safety checks, and validation checklist.
+- `references/unity-yaml-reference.md`: detailed UnityYAML format, editing patterns, safety checks, and validation checklist

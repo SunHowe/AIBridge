@@ -184,7 +184,7 @@ namespace AIBridgeCLI.Workflow
             }
 
             sb.AppendLine("- Treat Skill routing as preflight, not as a business phase.");
-            sb.AppendLine("- When executing a phase or step, emit short visible status text with the current phase/step, active Skills, expected output, and handoff or gate status.");
+            sb.AppendLine("- When executing a phase or step, emit short visible status blocks: use `【入口：...】` only for routing, `【模式：...】` for business modes, and `-> ...` for phase/step progress. Put active Skills, expected output, handoff, and gate status on separate lines.");
             sb.AppendLine("- At Mode Exit or phase boundaries, pass compact handoff summaries, artifact refs, gates, and open risks instead of previous phase Skill details.");
             sb.AppendLine();
         }

@@ -26,6 +26,7 @@ namespace AIBridge.Editor
         private const string CODE_INDEX_BACKUP_PREFIX = CODE_INDEX_FOLDER + ".old.";
         private const string CODE_INDEX_DAEMON_SHUTDOWN_CLEANUP_MODE = "processOnly";
         private const int CODE_INDEX_DAEMON_SHUTDOWN_TIMEOUT_MS = 3000;
+        private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
         private static readonly string[] CLI_FILES = new[]
         {
             "AIBridgeCLI.dll",
@@ -766,7 +767,7 @@ namespace AIBridge.Editor
             }
 
             content = ApplyProjectVersionTokens(content);
-            File.WriteAllText(targetFile, content, System.Text.Encoding.UTF8);
+            File.WriteAllText(targetFile, content, Utf8NoBom);
         }
 
         private static List<AssistantIntegrationResult> InstallAssistantIntegrations(string projectRoot)
@@ -814,6 +815,7 @@ namespace AIBridge.Editor
                         result.SkillFileAction = InstallSkillFileForTarget(projectRoot, target, sourceSkillPath, out skillFilePath);
                         result.SkillFilePath = skillFilePath;
                         result.AdditionalSkillFilePaths.AddRange(InstallAdditionalSkillDirectoriesForTarget(projectRoot, target));
+                        GenerateWorkflowPreferenceFilesForTarget(projectRoot, target);
                         GenerateSkillReferenceFilesForTarget(projectRoot, target);
                     }
 
@@ -920,6 +922,88 @@ namespace AIBridge.Editor
             return installedSkillFiles;
         }
 
+        internal static List<string> GenerateWorkflowPreferenceFilesForSelectedTargets(string projectRoot)
+        {
+            var generatedFiles = new List<string>();
+            foreach (var target in GetSelectedTargets(projectRoot))
+            {
+                generatedFiles.AddRange(GenerateWorkflowPreferenceFilesForTarget(projectRoot, target));
+            }
+
+            return generatedFiles;
+        }
+
+        private static List<string> GenerateWorkflowPreferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
+        {
+            var generatedFiles = new List<string>();
+            var sourceSkillRoot = GetSourceSkillRootPath();
+            var targetSkillRoot = GetTargetSkillRootDirectory(projectRoot, target);
+            if (string.IsNullOrEmpty(sourceSkillRoot) || string.IsNullOrEmpty(targetSkillRoot))
+            {
+                return generatedFiles;
+            }
+
+            if (IsUnsafeSkillInstallTarget(sourceSkillRoot, targetSkillRoot))
+            {
+                AIBridgeLogger.LogWarning("[SkillInstaller] Refused to generate workflow preference files into package source Skill~ directory: " + targetSkillRoot);
+                return generatedFiles;
+            }
+
+            var workflowSkillDirectory = Path.Combine(targetSkillRoot, WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName);
+            if (!Directory.Exists(workflowSkillDirectory))
+            {
+                return generatedFiles;
+            }
+
+            SyncWorkflowSkillEntryFile(sourceSkillRoot, workflowSkillDirectory);
+            SyncWorkflowBranchDocuments(sourceSkillRoot, workflowSkillDirectory);
+            var preferencesPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.PreferencesRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var branchSelectionPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.BranchSelectionRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            EnsureParentDirectory(preferencesPath);
+            EnsureParentDirectory(branchSelectionPath);
+            File.WriteAllText(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
+            File.WriteAllText(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
+            generatedFiles.Add(preferencesPath);
+            generatedFiles.Add(branchSelectionPath);
+            return generatedFiles;
+        }
+
+        private static void SyncWorkflowSkillEntryFile(string sourceSkillRoot, string workflowSkillDirectory)
+        {
+            var sourceSkillPath = Path.Combine(
+                sourceSkillRoot,
+                WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName,
+                SKILL_FILE_NAME);
+            if (!File.Exists(sourceSkillPath))
+            {
+                return;
+            }
+
+            var targetSkillPath = Path.Combine(workflowSkillDirectory, SKILL_FILE_NAME);
+            GenerateAndWriteSkillFile(sourceSkillPath, workflowSkillDirectory, targetSkillPath);
+        }
+
+        private static void SyncWorkflowBranchDocuments(string sourceSkillRoot, string workflowSkillDirectory)
+        {
+            var sourceBranchesDirectory = Path.Combine(
+                sourceSkillRoot,
+                WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName,
+                "references",
+                "branches");
+            if (!Directory.Exists(sourceBranchesDirectory))
+            {
+                return;
+            }
+
+            var targetBranchesDirectory = Path.Combine(workflowSkillDirectory, "references", "branches");
+            if (Directory.Exists(targetBranchesDirectory))
+            {
+                Directory.Delete(targetBranchesDirectory, true);
+            }
+
+            CopyDirectory(sourceBranchesDirectory, targetBranchesDirectory);
+        }
+
         private static void GenerateSkillReferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
         {
             var targetSkillDirectory = GetTargetSkillDirectory(projectRoot, target);
@@ -930,6 +1014,15 @@ namespace AIBridge.Editor
 
             var commands = CommandRegistry.GetAllCommands();
             SkillDocumentGenerator.GenerateReferenceFiles(targetSkillDirectory, commands);
+        }
+
+        private static void EnsureParentDirectory(string filePath)
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
         }
 
         private static string GetTargetSkillDirectory(string projectRoot, AssistantIntegrationTarget target)
@@ -1040,6 +1133,11 @@ namespace AIBridge.Editor
             {
                 { "CLI_PATH", "./" + CLI_CACHE_FOLDER + "/" + cliExeName },
                 { "COMMON_COMMANDS_TITLE", AIBridgeEditorText.For(language, "Common Commands", "常用命令") },
+                { "HOST_EXEC_TITLE", AIBridgeEditorText.For(language, "Host Exec", "Host Exec") },
+                { "HOST_EXEC_RULE", AIBridgeEditorText.For(
+                    language,
+                    "When AIBridge CLI is available, prefer `$CLI exec run --stdin` for external host tools such as `rg`, `git`, `dotnet`, `python`, `node`, `sg`, or `grep`, including quick search/display tasks; use `$CLI exec batch --stdin` for multiple jobs. Direct host shell is only for trivial one-off commands, explicit user preference, or when AIBridge CLI is unavailable.",
+                    "当 AIBridge CLI 可用时，调用 `rg`、`git`、`dotnet`、`python`、`node`、`sg`、`grep` 等外部 host 工具优先用 `$CLI exec run --stdin`，快速查找/显示任务也适用；多任务使用 `$CLI exec batch --stdin`。直接 host shell 仅用于极简单的一次性命令、用户明确要求或 AIBridge CLI 不可用时。") },
                 { "PROJECT_VERSION_TITLE", AIBridgeEditorText.For(language, "Project Version", "项目版本") },
                 { "UNITY_VERSION", unityVersion },
                 { "CSHARP_LANGUAGE_VERSION", csharpLanguageVersion },
@@ -1049,11 +1147,11 @@ namespace AIBridge.Editor
                 { "HARNESS_CAPABILITY_RULE", harnessCapabilityRule },
                 { "CODE_INDEX_CAPABILITY_RULE", BuildCodeIndexCapabilityRule(language) },
                 { "ROUTING_TITLE", AIBridgeEditorText.For(language, "Routing Rules", "路由原则") },
-                { "QUICK_TASK_RULE", AIBridgeEditorText.For(language, "Quick tasks: answer or execute directly for pure Q&A, code explanation, search/display, or tasks with no code or asset changes.", "快速任务：纯问答、代码解释、查找、显示、无代码或资源修改，直接回答或执行。") },
-                { "DEVELOPMENT_TASK_RULE", AIBridgeEditorText.For(language, "Development, debugging, review, and validation tasks for C# code, Unity assets, Prefabs, Editor tools, package structure, tests, AGENTS.md, Skills, Runtime behavior, or logs must load `aibridge-development-workflow` first.", "开发、调试、审查和验证任务：涉及 C# 代码、Unity 资源、Prefab、Editor 工具、包结构、测试、AGENTS.md、Skills、Runtime 行为或日志时，必须优先加载 `aibridge-development-workflow`。") },
+                { "QUICK_TASK_RULE", AIBridgeEditorText.For(language, "Quick tasks: answer or execute directly without loading `aibridge-development-workflow` for pure Q&A, code explanation, simple search/display, or tasks with no code or Unity asset changes and no review, validation, or root-cause verdict.", "快速任务：纯问答、代码解释、简单查找/显示，且不需要修改代码或 Unity 资源、不输出审查/验证/根因结论时，直接回答或执行，不加载 `aibridge-development-workflow`。") },
+                { "DEVELOPMENT_TASK_RULE", AIBridgeEditorText.For(language, "Workflow tasks: load `aibridge-development-workflow` first when the task requires code or Unity asset changes, persistent AGENTS/Skill/workflow rule changes, root-cause debugging, Runtime/log evidence, or a risk review/validation verdict.", "工作流任务：当任务需要修改代码或 Unity 资源、修改持久化 AGENTS/Skill/workflow 规则、调试根因、采集 Runtime/日志证据，或输出风险审查/验证结论时，必须优先加载 `aibridge-development-workflow`。") },
                 { "WORKFLOW_SKILL_RULE", AIBridgeEditorText.For(language, "After entering the workflow, `aibridge-development-workflow` probes harness readiness, chooses the task branch, and decides whether to load additional Skills.", "进入工作流后，由 `aibridge-development-workflow` 探测 harness 能力、选择任务分支，并决定是否继续加载其它 Skill。") },
                 { "SKILL_LOADING_TITLE", AIBridgeEditorText.For(language, "Skill Loading", "Skill 加载") },
-                { "WORKFLOW_SKILL_ENTRY", AIBridgeEditorText.For(language, "Load `aibridge-development-workflow` from `" + workflowSkillDocPath + "` before development tasks.", "开发任务先加载 `" + workflowSkillDocPath + "` 中的 `aibridge-development-workflow`。") },
+                { "WORKFLOW_SKILL_ENTRY", AIBridgeEditorText.For(language, "Load `aibridge-development-workflow` from `" + workflowSkillDocPath + "` before workflow tasks.", "工作流任务先加载 `" + workflowSkillDocPath + "` 中的 `aibridge-development-workflow`。") },
                 { "SKILL_ROOT_RULE", AIBridgeEditorText.For(language, "AIBridge Skills are installed under `" + skillRootPath + "/<skill-name>/SKILL.md`; load sibling Skills from that directory when this root rule or the workflow requires them.", "AIBridge Skills 安装在 `" + skillRootPath + "/<skill-name>/SKILL.md`；当本根规则或工作流要求时，从该目录加载同级 Skill。") }
             };
         }
@@ -1364,7 +1462,7 @@ namespace AIBridge.Editor
                 {
                     EditorUtility.DisplayDialog(
                         "AIBridge",
-                        AIBridgeEditorText.T("No assistant tools selected for installation. Open AIBridge/Settings and choose at least one tool.", "未选择要安装的 AI 工具。请打开 AIBridge/Settings 并至少选择一个工具。"),
+                        AIBridgeEditorText.T("No assistant tools selected for installation. Open AIBridge/Workflows and choose at least one tool.", "未选择要安装的 AI 工具。请打开 AIBridge/Workflows 并至少选择一个工具。"),
                         AIBridgeEditorText.T("OK", "确定"));
                     return;
                 }

@@ -24,6 +24,7 @@
 ## 项目验证
 - 编译.\Tools~\AIBridgeCLI\AIBridgeCLI.csproj 项目确认无报错
 - 检查所有Runtime和Editor下的代码文件都有生成相应的meta文件
+- 检查以 `~` 结尾的目录或文件是否保留了 `.meta`；Unity 默认忽略这类路径，原则上不要提交它们的 `.meta`，清理时连同对应目录下的 `.meta` 一并删除
 - 检查编辑器面板新增或修改的用户可见文本已适配英文和简体中文
 - 涉及 Unity API 或编译兼容性时，必须确保 `package.json` 声明的最低 Unity 2019.4 到 Unity 6000.x 兼容；能访问对应编辑器时至少验证 Unity 2019.4 和 Unity 6000.x 编译，无法验证的版本必须明确说明
 
@@ -54,6 +55,6 @@
 ## 模板维护规则
 1. `Templates~/ProjectRules/AGENTS.zh-CN.md` 和 `Templates~/ProjectRules/AGENTS.en-US.md` 是安装到 Unity 项目的示例文件
 2. `Templates~/Rules/AIBridge.RootRule.md` 是注入到已有规则文件的通用最小引导块
-3. RootRule 只放 CLI 路径、常用命令、Skill 根目录提示和“开发任务先加载工作流”的路由规则
+3. RootRule 只放 CLI 路径、常用命令、host 工具 `exec` 路由、“快速任务不进工作流 / 工作流任务先加载工作流”的路由规则、Skill 根目录提示、项目版本和 compact 能力摘要
 4. 完整行为规范必须放在 `aibridge-development-workflow`
 5. CLI 详细命令说明必须放在对应 Skill 的 `references/*.md`

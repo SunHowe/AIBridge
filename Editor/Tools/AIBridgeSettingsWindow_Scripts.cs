@@ -13,12 +13,16 @@ namespace AIBridge.Editor
         // ==================== 脚本执行页签 ====================
         
         private string _scriptDirectory = AIBridgeProjectSettings.DefaultScriptDirectory;
-        private List<string> _scriptFiles = new List<string>();
+        private List<ScriptFileEntry> _scriptFiles = new List<ScriptFileEntry>();
         private int _selectedScriptIndex = -1;
         private Vector2 _scriptLogScrollPosition;
+        private Vector2 _codeScriptResultScrollPosition;
+        private CodeScriptExecutionViewState _codeScriptState = new CodeScriptExecutionViewState();
 
         private void DrawScriptsTab()
         {
+            PollCodeScriptExecution();
+
             EditorGUILayout.LabelField(AIBridgeEditorText.T("Script Execution", "脚本执行管理"), EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
@@ -88,7 +92,8 @@ namespace AIBridge.Editor
             EditorGUILayout.BeginVertical(GUI.skin.box);
             for (int i = 0; i < _scriptFiles.Count; i++)
             {
-                var scriptPath = _scriptFiles[i];
+                var entry = _scriptFiles[i];
+                var scriptPath = entry.Path;
                 var scriptName = Path.GetFileName(scriptPath);
                 
                 EditorGUILayout.BeginHorizontal();
@@ -100,13 +105,13 @@ namespace AIBridge.Editor
                     _selectedScriptIndex = i;
                 }
                 
-                // 脚本名称
+                EditorGUILayout.LabelField(entry.Kind == ScriptFileKind.CSharp ? "C#" : "Batch", GUILayout.Width(48));
                 EditorGUILayout.LabelField(scriptName);
                 
                 // 执行按钮
                 if (GUILayout.Button(AIBridgeEditorText.T("Run", "执行"), GUILayout.Width(60)))
                 {
-                    ExecuteScript(scriptPath);
+                    ExecuteScript(entry);
                 }
                 
                 EditorGUILayout.EndHorizontal();
@@ -151,6 +156,13 @@ namespace AIBridge.Editor
             if (GUILayout.Button(AIBridgeEditorText.T("Stop", "停止")))
             {
                 ScriptExecution.ScriptExecutor.Stop();
+            }
+            GUI.enabled = true;
+
+            GUI.enabled = _codeScriptState != null && _codeScriptState.IsRunning;
+            if (GUILayout.Button(AIBridgeEditorText.T("Cancel Code Execution", "取消代码执行")))
+            {
+                CancelCodeScriptExecution();
             }
             GUI.enabled = true;
             
@@ -204,6 +216,38 @@ namespace AIBridge.Editor
             }
             
             EditorGUILayout.EndScrollView();
+
+            EditorGUILayout.Space(5);
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("C# Script Result", "C# 脚本结果"), EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            if (_codeScriptState != null && !string.IsNullOrEmpty(_codeScriptState.ScriptPath))
+            {
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("Current Script", "当前脚本"), Path.GetFileName(_codeScriptState.ScriptPath));
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("Status", "状态"), _codeScriptState.IsRunning ? "Running" : "Idle");
+            }
+
+            if (_codeScriptState == null || (string.IsNullOrEmpty(_codeScriptState.Message) && _codeScriptState.LastResult == null))
+            {
+                EditorGUILayout.LabelField(AIBridgeEditorText.T("No C# script result", "暂无 C# 脚本结果"), EditorStyles.centeredGreyMiniLabel);
+            }
+            else
+            {
+                _codeScriptResultScrollPosition = EditorGUILayout.BeginScrollView(_codeScriptResultScrollPosition, GUILayout.Height(150));
+                if (!string.IsNullOrEmpty(_codeScriptState.Message))
+                {
+                    EditorGUILayout.LabelField(_codeScriptState.Message, EditorStyles.wordWrappedLabel);
+                }
+
+                if (_codeScriptState.LastResult != null)
+                {
+                    EditorGUILayout.LabelField(ScriptFileUtility.FormatCodeResult(_codeScriptState.LastResult), EditorStyles.wordWrappedLabel);
+                }
+
+                EditorGUILayout.EndScrollView();
+            }
+
+            EditorGUILayout.EndVertical();
         }
 
         private void RefreshScriptList()
@@ -217,18 +261,32 @@ namespace AIBridge.Editor
             }
             _scriptDirectory = _scriptDirectoryOption.Value;
             
-            if (!Directory.Exists(_scriptDirectory))
+            _scriptFiles.AddRange(ScriptFileUtility.FindScripts(_scriptDirectory));
+            if (_selectedScriptIndex >= _scriptFiles.Count)
             {
-                return;
+                _selectedScriptIndex = _scriptFiles.Count - 1;
             }
-            
-            var files = Directory.GetFiles(_scriptDirectory, "*.txt", SearchOption.AllDirectories);
-            _scriptFiles.AddRange(files);
             
             Debug.Log(AIBridgeEditorText.T($"[AIBridge] Found {_scriptFiles.Count} script file(s)", $"[AIBridge] 找到 {_scriptFiles.Count} 个脚本文件"));
         }
 
-        private void ExecuteScript(string scriptPath)
+        private void ExecuteScript(ScriptFileEntry entry)
+        {
+            if (entry == null)
+            {
+                return;
+            }
+
+            if (entry.Kind == ScriptFileKind.CSharp)
+            {
+                ExecuteCodeScript(entry.Path);
+                return;
+            }
+
+            ExecuteBatchScript(entry.Path);
+        }
+
+        private void ExecuteBatchScript(string scriptPath)
         {
             // 验证脚本
             var error = ScriptExecution.ScriptParser.Validate(scriptPath);
@@ -244,6 +302,60 @@ namespace AIBridge.Editor
             // 执行脚本
             ScriptExecution.ScriptExecutor.Execute(scriptPath);
             Debug.Log(AIBridgeEditorText.T($"[AIBridge] Started script: {scriptPath}", $"[AIBridge] 开始执行脚本: {scriptPath}"));
+        }
+
+        private void ExecuteCodeScript(string scriptPath)
+        {
+            var request = ScriptFileUtility.BuildCodeExecuteRequest(scriptPath, ScriptFileUtility.DefaultCodeTimeoutMs);
+            var result = new CodeCommand().Execute(request);
+            _codeScriptState = new CodeScriptExecutionViewState
+            {
+                RequestId = request.id,
+                ScriptPath = scriptPath,
+                IsRunning = result == null,
+                LastResult = result,
+                Message = result == null
+                    ? AIBridgeEditorText.T("C# script started asynchronously.", "C# 脚本已异步启动。")
+                    : null
+            };
+
+            Debug.Log(AIBridgeEditorText.T($"[AIBridge] Started C# script: {scriptPath}", $"[AIBridge] 开始执行 C# 脚本: {scriptPath}"));
+        }
+
+        private void PollCodeScriptExecution()
+        {
+            if (_codeScriptState == null || !_codeScriptState.IsRunning)
+            {
+                return;
+            }
+
+            var completedResult = ScriptFileUtility.ReadCodeResultFile(_codeScriptState.RequestId);
+            if (completedResult != null)
+            {
+                _codeScriptState.LastResult = completedResult;
+                _codeScriptState.IsRunning = false;
+                _codeScriptState.Message = AIBridgeEditorText.T("C# script completed.", "C# 脚本执行完成。");
+                return;
+            }
+
+            var statusResult = new CodeCommand().Execute(ScriptFileUtility.BuildCodeStatusRequest());
+            if (statusResult != null)
+            {
+                _codeScriptState.LastResult = statusResult;
+            }
+        }
+
+        private void CancelCodeScriptExecution()
+        {
+            if (_codeScriptState == null)
+            {
+                return;
+            }
+
+            var result = new CodeCommand().Execute(ScriptFileUtility.BuildCodeCancelRequest(_codeScriptState.RequestId));
+            _codeScriptState.LastResult = result;
+            _codeScriptState.IsRunning = false;
+            _codeScriptState.Message = AIBridgeEditorText.T("C# script cancellation requested.", "已请求取消 C# 脚本执行。");
         }
 
         private void CreateDefaultScriptDirectory()
@@ -303,6 +415,32 @@ log ""Example script completed""
 ";
                 File.WriteAllText(exampleScriptPath, exampleContent);
                 Debug.Log(AIBridgeEditorText.T($"[AIBridge] Created example script: {exampleScriptPath}", $"[AIBridge] 创建示例脚本: {exampleScriptPath}"));
+            }
+
+            var codeExamplePath = Path.Combine(directory, "example.csx");
+            if (!File.Exists(codeExamplePath))
+            {
+                var codeExampleContent = AIBridgeProjectSettings.Instance.EditorLanguage == AIBridgeEditorLanguage.SimplifiedChinese
+                    ? @"// AIBridge C# 脚本示例
+// 文件模式适合复杂的一次性 Editor API 任务。
+Debug.Log(""AIBridge C# script started"");
+return new Dictionary<string, object>
+{
+    { ""message"", ""C# script completed"" },
+    { ""selection"", Selection.activeObject != null ? Selection.activeObject.name : ""<none>"" }
+};
+"
+                    : @"// AIBridge C# script example
+// File mode is useful for complex one-off Editor API tasks.
+Debug.Log(""AIBridge C# script started"");
+return new Dictionary<string, object>
+{
+    { ""message"", ""C# script completed"" },
+    { ""selection"", Selection.activeObject != null ? Selection.activeObject.name : ""<none>"" }
+};
+";
+                File.WriteAllText(codeExamplePath, codeExampleContent);
+                Debug.Log(AIBridgeEditorText.T($"[AIBridge] Created C# example script: {codeExamplePath}", $"[AIBridge] 创建 C# 示例脚本: {codeExamplePath}"));
             }
             
             _scriptDirectory = directory;

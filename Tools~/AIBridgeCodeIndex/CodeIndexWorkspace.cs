@@ -103,6 +103,17 @@ namespace AIBridgeCodeIndex
         public string StaleReason { get; private set; }
         public int LoadedProjects { get; private set; }
         public int LoadedDocuments { get; private set; }
+        public bool HasSemanticWorkspace
+        {
+            get
+            {
+                return _workspace != null
+                       && _solution != null
+                       && (LoadedProjects > 0 || LoadedDocuments > 0 || _loadedAssemblyIds.Count > 0);
+            }
+        }
+
+        public bool LoadedAllAssemblies { get { return _loadedAllAssemblies; } }
 
         public bool IsStale()
         {
@@ -155,6 +166,40 @@ namespace AIBridgeCodeIndex
             {
                 _loadGate.Release();
             }
+        }
+
+        public async Task WarmupSemanticAsync(IEnumerable<string> requiredAssemblyIds, bool loadAllAssemblies)
+        {
+            await _loadGate.WaitAsync();
+            try
+            {
+                if (_manifest == null)
+                {
+                    LoadSnapshotIndex();
+                }
+
+                var normalizedAssemblyIds = NormalizeAssemblyIds(requiredAssemblyIds);
+                if (!loadAllAssemblies && normalizedAssemblyIds.Count == 0)
+                {
+                    return;
+                }
+
+                LoadSnapshotWorkspace(normalizedAssemblyIds, loadAllAssemblies);
+            }
+            finally
+            {
+                _loadGate.Release();
+            }
+        }
+
+        public string[] GetLoadedAssemblyIds()
+        {
+            if (_loadedAssemblyIds == null || _loadedAssemblyIds.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            return _loadedAssemblyIds.ToArray();
         }
 
         public async Task<CodeIndexResponse> QueryAsync(string action, Dictionary<string, object> parameters)
@@ -487,6 +532,25 @@ namespace AIBridgeCodeIndex
             if (requiredAssemblyIds != null)
             {
                 foreach (var assemblyId in requiredAssemblyIds)
+                {
+                    result.Add(assemblyId);
+                }
+            }
+
+            return result;
+        }
+
+        private static HashSet<string> NormalizeAssemblyIds(IEnumerable<string> assemblyIds)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (assemblyIds == null)
+            {
+                return result;
+            }
+
+            foreach (var assemblyId in assemblyIds)
+            {
+                if (!string.IsNullOrWhiteSpace(assemblyId))
                 {
                     result.Add(assemblyId);
                 }

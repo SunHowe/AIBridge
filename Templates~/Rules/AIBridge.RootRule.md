@@ -15,13 +15,8 @@ $CLI get_logs --logType Error
 $CLI editor log --message "Hello" --logType Warning
 ```
 
-**{{PROJECT_VERSION_TITLE}}**:
-- {{UNITY_VERSION_RULE}}
-- {{CSHARP_VERSION_RULE}}
-
-**{{CAPABILITIES_TITLE}}**:
-- {{HARNESS_CAPABILITY_RULE}}
-- {{CODE_INDEX_CAPABILITY_RULE}}
+**{{HOST_EXEC_TITLE}}**:
+- {{HOST_EXEC_RULE}}
 
 **{{ROUTING_TITLE}}**:
 - {{QUICK_TASK_RULE}}
@@ -31,3 +26,11 @@ $CLI editor log --message "Hello" --logType Warning
 **{{SKILL_LOADING_TITLE}}**:
 - {{WORKFLOW_SKILL_ENTRY}}
 - {{SKILL_ROOT_RULE}}
+
+**{{PROJECT_VERSION_TITLE}}**:
+- {{UNITY_VERSION_RULE}}
+- {{CSHARP_VERSION_RULE}}
+
+**{{CAPABILITIES_TITLE}}**:
+- {{HARNESS_CAPABILITY_RULE}}
+- {{CODE_INDEX_CAPABILITY_RULE}}

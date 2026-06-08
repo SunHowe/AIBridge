@@ -44,7 +44,7 @@ $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 
 `import` copies structured external results into run artifacts. `Verdict.status` must be `confirmed`, `refuted`, or `uncertain`; `externalVerdict` gates pass only from imported Verdict artifacts, not from prose summaries. `ValidationResult` imports use the `validation-report` artifact kind by default.
 
-For resumed work, run `workflow status --run <runId>` before adding new evidence. Status, run-cli, finish, and JSON report outputs are compact by default; use `--detail full` only when the full manifest JSON is needed. Use active-run attachment only when the current task clearly belongs to that run; otherwise pass `--workflow-run <runId>` explicitly or start a new run.
+For resumed work, run `workflow status --run <runId>` before adding new evidence. Status, run-cli, finish, and JSON report outputs are compact by default; use `--detail full` only when the full manifest JSON is needed. Default handoff should keep `runDirectory`, `manifestPath`, `reportPath`, artifact ids, gate summaries, and gaps as refs; do not read full `manifest.json` or Markdown reports for routine status. Use active-run attachment only when the current task clearly belongs to that run; otherwise pass `--workflow-run <runId>` explicitly or start a new run.
 
 `export` compiles a recipe into an external task package or script (`codex-task-pack`, `generic-cli`, `claude-workflow`). Exporters do not run external agents and do not provide an LLM runtime.
 
@@ -140,7 +140,7 @@ Template variables use `{{name}}` or `{{inputs.name}}` and are resolved from the
 
 Skill routing is a preflight step, not a recipe phase or business mode. It computes baseline, active, deferred, and guarded Skills before entering a mode. Release is evaluated at Mode Exit, phase boundary, or step handoff, not when routing finishes.
 
-When an AI harness executes a recipe, this metadata must also be reflected in short visible status text at phase/step entry and handoff. Do not leave the current mode, step, or active Skills only in JSON/report artifacts.
+When an AI harness executes a recipe, this metadata must also be reflected in short visible status blocks at phase/step entry and handoff. Use explicit labels: `【入口：...】` only for routing, `【模式：...】` for business modes, and `-> ...` for phase/step progress. Put active Skills, expected output, handoff, and gate status on separate lines instead of packing them into one sentence.
 
 Allowed locations:
 

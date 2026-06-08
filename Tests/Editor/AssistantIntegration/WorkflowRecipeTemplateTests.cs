@@ -93,6 +93,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("SkillHandoff", evidenceSchema);
             StringAssert.Contains("workflow status --run", schema);
             StringAssert.Contains("--detail full", schema);
+            StringAssert.Contains("do not read full `manifest.json` or Markdown reports for routine status", schema);
             StringAssert.Contains("Never parallel-write", schema);
             StringAssert.Contains("requiredSkills", schema);
             StringAssert.Contains("releaseSkillsAfter", schema);
@@ -115,11 +116,12 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("skipped_requires_external_executor", exporter);
             StringAssert.Contains("workflow status --run <runId>", exporter);
             StringAssert.Contains("Skill Routing And Scope", exporter);
-            StringAssert.Contains("emit short visible status text", exporter);
+            StringAssert.Contains("emit short visible status blocks", exporter);
+            StringAssert.Contains("`【模式：...】`", exporter);
+            StringAssert.Contains("`-> ...`", exporter);
             StringAssert.Contains("\"evidence\"", importer);
             StringAssert.Contains("\"command-evidence\"", importer);
             StringAssert.Contains("\"skill-handoff\"", importer);
-            StringAssert.Contains("SkillHandoff.completedMode", importer);
             StringAssert.Contains("skillScopes", command);
             StringAssert.Contains("## Skill Scope", report);
             StringAssert.Contains("HarnessCommandBuilder", registry);

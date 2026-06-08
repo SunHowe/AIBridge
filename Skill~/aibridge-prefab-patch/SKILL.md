@@ -1,34 +1,34 @@
 ---
 name: aibridge-prefab-patch
-description: Unity Prefab asset patch workflow for AIBridge. Use when modifying complex prefab assets with prefab patch operations, child or component creation, SerializedProperty writes, array edits, internal GameObject/component references, dry-run validation, or when deciding between prefab patch, inspector set_property, scene object commands, and direct Unity YAML fallback.
+description: Unity Prefab asset patch workflow for AIBridge. Use when modifying complex prefab assets with prefab patch operations, child or component creation, SerializedProperty writes, array edits, internal GameObject/component references, dry-run validation, or when deciding between prefab patch, inspector set_property, scene object commands, and direct Unity YAML fallback
 ---
 
 # AIBridge Prefab Patch
 
-Use `prefab patch` for complex Prefab asset edits that need multiple operations in one load/save cycle. Use `inspector set_property` for a single simple serialized field, and `inspector set_properties` for small batched field edits. Use `gameobject`、`transform`、`inspector` for scene objects. If the requested Prefab/Scene/custom `.asset` operation is not supported by AIBridge, load `unity-yaml-editing` and follow its direct UnityYAML rules.
+Use `prefab patch` when one Prefab edit needs multiple operations in one load/save cycle. For single-field or small batched edits, prefer `inspector set_property` or `inspector set_properties`. For scene objects, prefer `gameobject`, `transform`, and `inspector`. If the requested Prefab/Scene/custom `.asset` operation is not supported by AIBridge, load `unity-yaml-editing` and follow its direct UnityYAML rules
 
-`$CLI` means the platform-appropriate AIBridge CLI invocation, usually `./.aibridge/cli/AIBridgeCLI.exe` on Windows.
+`$CLI` means the platform-appropriate AIBridge CLI invocation, usually `./.aibridge/cli/AIBridgeCLI.exe` on Windows
 
 ## 参数选择
 
-- Prefer `--ops <file>` for multi-step edits, nested JSON, arrays, references, or anything run from PowerShell.
-- Use `--ops-json <json>` only for one or two very small operations.
-- Put temporary operation files under `.aibridge/patch_ops/`.
-- Always run `--dryRun true` before writing the prefab.
+- Prefer `--ops <file>` for multi-step edits, nested JSON, arrays, references, or anything run from PowerShell
+- Use `--ops-json <json>` only for one or two very small operations
+- Put temporary operation files under `.aibridge/patch_ops/`
+- Always run `--dryRun true` before writing the prefab
 
 ## 标准流程
 
-1. Find the target prefab with `asset find/search --format paths`.
-2. Inspect structure with `prefab get_hierarchy --prefabPath "<prefab>"`.
-3. Create `.aibridge/patch_ops/<task>.json`.
+1. Find the target prefab with `asset find/search --format paths`
+2. Inspect structure with `prefab get_hierarchy --prefabPath "<prefab>"`
+3. Create `.aibridge/patch_ops/<task>.json`
 4. Run dry-run:
 
 ```bash
 $CLI prefab patch --prefabPath "Assets/Prefabs/Player.prefab" --ops ".aibridge/patch_ops/player_hp_patch.json" --dryRun true
 ```
 
-5. If dry-run succeeds, run the same command without `--dryRun true`.
-6. Re-check hierarchy/properties, then run `compile unity` and `get_logs --logType Error`.
+5. If dry-run succeeds, run the same command without `--dryRun true`
+6. Re-check hierarchy/properties, then run `compile unity` and `get_logs --logType Error`
 
 ## 操作示例
 
@@ -103,4 +103,4 @@ null
 
 ## References
 
-- `references/prefab-reference.md`: generated CLI reference for general `prefab` commands.
+- `references/prefab-reference.md`: generated CLI reference for general `prefab` commands

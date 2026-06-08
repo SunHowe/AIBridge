@@ -1,18 +1,18 @@
 ---
 name: aibridge-workflow-orchestration
-description: AIBridge workflow and multi-agent orchestration guidance. Use when Codex needs to design, review, or execute a multi-agent workflow plan, split Unity work into parallel or pipeline agent roles, define structured workflow artifacts, choose between batch/multi automation and agent orchestration, run adversarial verification, investigate Runtime debug evidence, sweep multiple Runtime targets, or prepare AIBridge workflow recipes.
+description: AIBridge workflow and multi-agent orchestration guidance. Use when Codex needs to design, review, or execute a multi-agent workflow plan, split Unity work into parallel or pipeline agent roles, define structured workflow artifacts, choose between batch/multi automation and agent orchestration, run adversarial verification, investigate Runtime debug evidence, sweep multiple Runtime targets, or prepare AIBridge workflow recipes
 ---
 
 # AIBridge Workflow Orchestration
 
-Use this Skill for workflow recipes, multi-agent orchestration, parallel review, pipeline validation, adversarial verification, Runtime debug investigations, Runtime target sweeps, or structured workflow artifacts.
+Focus on workflow recipes, multi-agent orchestration, parallel review, pipeline validation, adversarial verification, Runtime debug investigations, Runtime target sweeps, or structured workflow artifacts
 
-Do not use it for routine single-file edits, simple CLI command lookup, or ordinary Unity validation. Use `aibridge-development-workflow` and `aibridge` for those tasks.
+Leave routine single-file edits, simple CLI command lookup, and ordinary Unity validation to `aibridge-development-workflow` and `aibridge`
 
 ## Core Rules
 
 - Keep orchestration explicit: phases, roles, dependencies, gates, artifacts, and expected outputs.
-- Keep execution visible: when running a workflow, name the current phase/step and active Skills in short user-facing status text.
+- Keep execution visible: when running a workflow, use short status blocks with explicit labels, `【模式：...】` for the active business mode and `-> ...` for phase/step progress.
 - Prefer parallel read and serial write. Use parallel write only when worktree isolation, file ownership, merge strategy, and validation gates are explicit.
 - Use pipeline for staged per-item work. Use parallel barriers only when a downstream step needs all upstream results.
 - Use structured outputs for intermediate results: findings, verdicts, plans, patch proposals, validation results, artifact references, and Runtime target references.
@@ -22,8 +22,8 @@ Do not use it for routine single-file edits, simple CLI command lookup, or ordin
 
 ## Reference Loading
 
-- Read `references/orchestration-patterns.md` before selecting parallel, pipeline, barrier, adversarial, or Runtime sweep patterns.
-- Read `references/recipe-schema.md` before writing or reviewing a workflow recipe document.
-- Read `references/evidence-schema.md` when defining or importing structured external results.
-- Read `references/builtin-recipes.md` before drafting common Unity implementation, review, Runtime validation, Prefab sweep, or bug-hunter workflows.
-- For cross-turn, resumed, or external-agent work, follow the active-run, evidence schema, and import rules in `references/orchestration-patterns.md` and `references/recipe-schema.md`.
+- Read `references/orchestration-patterns.md` before selecting parallel, pipeline, barrier, adversarial, or Runtime sweep patterns
+- Read `references/recipe-schema.md` before writing or reviewing a workflow recipe document
+- Read `references/evidence-schema.md` when defining or importing structured external results
+- Read `references/builtin-recipes.md` before drafting common Unity implementation, review, Runtime validation, Prefab sweep, or bug-hunter workflows
+- For cross-turn, resumed, or external-agent work, follow the active-run, evidence schema, and import rules in `references/orchestration-patterns.md` and `references/recipe-schema.md`
