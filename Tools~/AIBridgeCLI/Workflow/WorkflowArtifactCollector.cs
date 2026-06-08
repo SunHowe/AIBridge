@@ -237,6 +237,11 @@ namespace AIBridgeCLI.Workflow
                 return "runtime-perf";
             }
 
+            if (normalized.StartsWith("profiler "))
+            {
+                return "profiler-snapshot";
+            }
+
             if (normalized.StartsWith("runtime call") || normalized.StartsWith("runtime handlers"))
             {
                 return "runtime-handler-result";

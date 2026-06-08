@@ -9,6 +9,7 @@
 1. 先确认项目偏好中调试诊断分支已启用。
 2. 读取 `debug-investigation-workflow.md` 和 `debug-investigation-checklist.md`。
 3. 需要 Runtime、Player、截图、性能、handler 或多目标 sweep 时，按需加载 `aibridge-workflow-orchestration`。
+4. 用户提到 Profiler、性能瓶颈、FPS、GC、内存、渲染、脚本耗时、hitch 或帧耗时时，读取 `profiler-debugging.md`；普通 Runtime/日志/UI 调试不预加载 Profiler 细节。
 
 ## 执行规则
 

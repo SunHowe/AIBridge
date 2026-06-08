@@ -51,6 +51,8 @@ $CLI runtime perf --target latest --duration 5s --interval 100ms
 $CLI runtime handlers --target latest
 ```
 
+性能/Profiler 调试按需读取 `profiler-debugging.md`；Editor 侧性能证据优先用 `$CLI profiler <action>`，Player/Play Mode 目标优先用 `$CLI runtime perf`，不要把 Runtime 不支持的 Editor Profiler 能力当作可用。
+
 需要执行项目暴露的诊断 handler 时：
 
 ```bash

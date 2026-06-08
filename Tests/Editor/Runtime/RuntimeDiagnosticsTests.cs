@@ -21,6 +21,38 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
+        public void ProfilerSnapshotData_CarriesRuntimeUnsupportedItems()
+        {
+            var snapshot = new ProfilerSnapshot
+            {
+                source = "runtime",
+                targetId = "runtime-test",
+                stats = new ProfilerStats
+                {
+                    frame = new ProfilerFrameStats
+                    {
+                        frameCount = 10,
+                        fps = 60d
+                    },
+                    rendering = new ProfilerRenderingStats
+                    {
+                        targetFrameRate = 60,
+                        vSyncCount = 1,
+                        graphicsDeviceType = "Null"
+                    }
+                },
+                unsupported = new[]
+                {
+                    new ProfilerUnsupportedItem("profilerWindow", "Runtime target cannot open the Unity Editor Profiler window.")
+                }
+            };
+
+            Assert.AreEqual("runtime", snapshot.source);
+            Assert.AreEqual(60d, snapshot.stats.frame.fps);
+            Assert.AreEqual("profilerWindow", snapshot.unsupported[0].feature);
+        }
+
+        [Test]
         public void LogBuffer_ClearAndFiltersWork()
         {
             var buffer = new AIBridgeRuntimeLogBuffer();
