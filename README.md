@@ -68,19 +68,22 @@ Use for: broad read-only review, multi-target Runtime validation, bug-hunter loo
 - **Roslyn temporary C# execution**: controlled `code execute` runs `.aibridge/code/*.cs` or `.csx` temporary scripts inside Unity Editor for complex one-off asset generation, structured analysis, diagnostics, and Runtime/Public API calls. It is enabled by default in Settings and can be disabled there for untrusted projects or callers.
 - **Visual and log validation**: capture Game/Scene view screenshots or GIFs, read Console logs, run Unity compilation, and invoke tests so agents can close the loop on changes.
 
-## Place In The Unity AI Harness Ecosystem
+## AIBridge and Unity MCP
 
 Real Unity state does not live only in text files. It also lives in Editor state, scene hierarchies, serialized prefab objects, Inspector properties, Play Mode, Players, Console logs, screenshots, and runtime objects. AIBridge's role is to turn those Unity-specific states into a project-local data plane that AI agents can query, modify, validate, and cite as evidence.
 
-It does not replace Codex, Claude, Cursor, or MCP. AI tools provide reasoning, editing, and orchestration. MCP can provide a general tool connection protocol. AIBridge provides the Unity-specific harness layer: project rules, Unity-aware CLI, Runtime Bridge, Code Index, workflow recipes, artifacts, gates, and reports.
+AIBridge does not replace AI clients such as Codex, Claude, or Cursor; those tools still provide reasoning, editing, and task orchestration. MCP can also remain in place when a workflow wants a general connection protocol.
 
-| Dimension | AIBridge owns | Generic MCP / persistent bridges usually own |
+The important distinction is protocol layer versus Unity tool layer: AIBridge is not replacing the MCP protocol; it covers the primary responsibility of Unity-MCP-style bridges at the Unity tool layer. For Unity MCP projects that mainly expose Editor call surfaces, AIBridge is usually the broader project-local harness: it also includes project rules, installed AI Skills, a project-local CLI, reload-resilient requests and results, Runtime Bridge, Code Index, evidence-backed validation, and workflow recipes.
+
+| Dimension | AIBridge owns | Unity-MCP-style bridges usually own |
 |---|---|---|
-| Unity state | Scene, Prefab, Inspector, Console, Play Mode, Player evidence | Tool invocation surface |
-| Compile and domain reloads | File requests and results can be polled across reloads; Runtime targets can be rediscovered | Live sessions can drop |
-| Multi-project use | Project-local CLI and rules from the Unity project root | Server or tool mapping |
+| Positioning | Project-local Unity AI harness and validation loop | Unity tool invocation surface or protocol adapter |
+| Unity state | Scene, Prefab, Inspector, Console, Play Mode, Player evidence | Common Editor state or tool responses |
+| Compile and domain reloads | File requests and results can be polled across reloads; Runtime targets can be rediscovered | Live sessions or connections can drop |
+| Multi-project use | Project-local CLI, rules, and Skills from the Unity project root | Server configuration or tool mapping |
 | Evidence retention | Command results, logs, screenshots, GIFs, Code Index output, Runtime diagnostics, workflow reports | Often session or tool response state |
-| Extension model | Unity commands, Runtime handlers, CLI builders, Skills, recipes | Tool servers or protocol adapters |
+| Extension model | Unity commands, Runtime handlers, CLI builders, Skills, recipes | Tool servers, MCP servers, or protocol adapters |
 
 ## Requirements
 
