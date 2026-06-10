@@ -27,7 +27,7 @@ namespace AIBridge.Editor.Tests
 
             if (Directory.Exists(ProjectRoot))
             {
-                Directory.Delete(ProjectRoot, true);
+                DeleteTemporaryDirectory(ProjectRoot);
             }
         }
 
@@ -54,6 +54,40 @@ namespace AIBridge.Editor.Tests
             process.Start();
             process.WaitForExit();
             Assert.AreEqual(0, process.ExitCode);
+        }
+
+        private static void DeleteTemporaryDirectory(string path)
+        {
+            ClearReadOnlyAttributes(path);
+            Directory.Delete(path, true);
+        }
+
+        private static void ClearReadOnlyAttributes(string path)
+        {
+            // Git object files can be read-only on Windows, which makes Directory.Delete fail in Unity's test runner.
+            foreach (var filePath in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+            {
+                var attributes = File.GetAttributes(filePath);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                {
+                    File.SetAttributes(filePath, attributes & ~FileAttributes.ReadOnly);
+                }
+            }
+
+            foreach (var directoryPath in Directory.GetDirectories(path, "*", SearchOption.AllDirectories))
+            {
+                var attributes = File.GetAttributes(directoryPath);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                {
+                    File.SetAttributes(directoryPath, attributes & ~FileAttributes.ReadOnly);
+                }
+            }
+
+            var rootAttributes = File.GetAttributes(path);
+            if ((rootAttributes & FileAttributes.ReadOnly) != 0)
+            {
+                File.SetAttributes(path, rootAttributes & ~FileAttributes.ReadOnly);
+            }
         }
 
         private static void ResetProjectSettings()
