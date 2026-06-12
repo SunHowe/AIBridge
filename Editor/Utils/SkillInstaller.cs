@@ -88,8 +88,7 @@ namespace AIBridge.Editor
 
         static SkillInstaller()
         {
-            // Delay execution to ensure Unity is fully initialized
-            EditorApplication.delayCall += InstallSkillIfNeeded;
+            ScheduleAutomaticInstall();
         }
 
         /// <summary>
@@ -104,13 +103,19 @@ namespace AIBridge.Editor
                     return;
                 }
 
-                if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+                if (EditorApplication.isPlayingOrWillChangePlaymode)
                 {
-                    EditorApplication.delayCall += InstallSkillIfNeeded;
+                    return;
+                }
+
+                if (!ShouldRunAutomaticInstall(EditorApplication.isCompiling, EditorApplication.isUpdating, false))
+                {
+                    ScheduleAutomaticInstall();
                     return;
                 }
 
                 var projectRoot = GetProjectRoot();
+
                 CopyCliToCacheIfNeeded(projectRoot);
 
                 if (!EnsureEditorLanguageInitialized())
@@ -126,10 +131,10 @@ namespace AIBridge.Editor
                 {
                     return;
                 }
-                
+
                 // 清理未勾选目标的注入内容
                 CleanupUnselectedTargets(projectRoot, targets);
-                
+
                 if (targets.Count == 0)
                 {
                     return;
@@ -143,6 +148,24 @@ namespace AIBridge.Editor
             {
                 AIBridgeLogger.LogError($"[SkillInstaller] Failed to install skill documentation: {ex.Message}");
             }
+        }
+
+        private static void ScheduleAutomaticInstall()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                return;
+            }
+
+            // Delay execution to ensure Unity is fully initialized.
+            EditorApplication.delayCall += InstallSkillIfNeeded;
+        }
+
+        internal static bool ShouldRunAutomaticInstall(bool isCompiling, bool isUpdating, bool isPlayingOrWillChangePlaymode)
+        {
+            return !isCompiling
+                   && !isUpdating
+                   && !isPlayingOrWillChangePlaymode;
         }
 
         internal static void RefreshInstalledIntegrationsNoDialog()

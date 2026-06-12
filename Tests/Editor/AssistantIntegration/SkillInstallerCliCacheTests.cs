@@ -135,6 +135,15 @@ namespace AIBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void AutomaticInstallSkipsPlayModeAndPlayModeTransitions()
+        {
+            Assert.IsTrue(SkillInstaller.ShouldRunAutomaticInstall(false, false, false));
+            Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(true, false, false));
+            Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(false, true, false));
+            Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(false, false, true));
+        }
+
         private static void WriteCompleteCodeIndexDirectory(string codeIndexDir, string marker)
         {
             Directory.CreateDirectory(codeIndexDir);
