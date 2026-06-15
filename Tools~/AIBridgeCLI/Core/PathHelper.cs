@@ -20,14 +20,7 @@ namespace AIBridgeCLI.Core
                 return _exchangeDir;
             }
 
-            // Method 1: Get from environment variable
-            var projectRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
-
-            // Method 2: Search up from current working directory to find Unity project
-            if (string.IsNullOrEmpty(projectRoot))
-            {
-                projectRoot = FindUnityProjectRoot(Directory.GetCurrentDirectory());
-            }
+            var projectRoot = TryGetUnityProjectRoot();
 
             // Method 3: Fallback to exe directory relative path (legacy compatibility)
             if (string.IsNullOrEmpty(projectRoot))
@@ -43,6 +36,27 @@ namespace AIBridgeCLI.Core
         }
 
         /// <summary>
+        /// Try to find the Unity project root without falling back to the legacy Exchange directory.
+        /// </summary>
+        public static string TryGetUnityProjectRoot()
+        {
+            var projectRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            if (!string.IsNullOrWhiteSpace(projectRoot))
+            {
+                // UNITY_PROJECT_ROOT 是显式覆盖，允许临时目录用于 CLI-only smoke test。
+                return Path.GetFullPath(projectRoot);
+            }
+
+            projectRoot = FindUnityProjectRoot(Directory.GetCurrentDirectory());
+            if (!string.IsNullOrEmpty(projectRoot))
+            {
+                return projectRoot;
+            }
+
+            return FindUnityProjectRoot(AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        /// <summary>
         /// Find Unity project root by searching up the directory tree
         /// </summary>
         private static string FindUnityProjectRoot(string startDir)
@@ -51,14 +65,21 @@ namespace AIBridgeCLI.Core
             while (!string.IsNullOrEmpty(dir))
             {
                 // Check for Unity project markers: Assets folder and ProjectSettings
-                if (Directory.Exists(Path.Combine(dir, "Assets")) &&
-                    File.Exists(Path.Combine(dir, "ProjectSettings", "ProjectSettings.asset")))
+                if (IsUnityProjectRoot(dir))
                 {
                     return dir;
                 }
                 dir = Path.GetDirectoryName(dir);
             }
             return null;
+        }
+
+        private static bool IsUnityProjectRoot(string directory)
+        {
+            return !string.IsNullOrWhiteSpace(directory)
+                && Directory.Exists(directory)
+                && Directory.Exists(Path.Combine(directory, "Assets"))
+                && File.Exists(Path.Combine(directory, "ProjectSettings", "ProjectSettings.asset"));
         }
 
         /// <summary>
