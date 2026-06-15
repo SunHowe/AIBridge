@@ -211,6 +211,8 @@ namespace AIBridge.Runtime.Internal
             foreach (var targetDirectory in SafeEnumerateDirectories(context, targetsDirectory))
             {
                 CleanScreenshotDirectory(context, Path.Combine(targetDirectory, "screenshots"), false);
+                CleanExpiredChildren(context, Path.Combine(targetDirectory, "commands"));
+                CleanExpiredChildren(context, Path.Combine(targetDirectory, "results"));
 
                 if (IsRuntimeTargetOnline(targetDirectory, context.NowUtc))
                 {

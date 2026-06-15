@@ -78,6 +78,29 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
+        public void CleanupExpired_CleansStaleFilesInsideOnlineRuntimeTarget()
+        {
+            var onlineTarget = ResolvePath("runtime/targets/online");
+            Directory.CreateDirectory(onlineTarget);
+            WriteHeartbeat(onlineTarget, _nowUtc.AddSeconds(-10));
+
+            var staleCommand = WriteFile("runtime/targets/online/commands/stale.json", _nowUtc.AddDays(-31));
+            var staleCommandError = WriteFile("runtime/targets/online/commands/stale.json.error", _nowUtc.AddDays(-31));
+            var staleResult = WriteFile("runtime/targets/online/results/stale.json", _nowUtc.AddDays(-31));
+            var recentCommand = WriteFile("runtime/targets/online/commands/recent.json", _nowUtc.AddDays(-5));
+            var recentResult = WriteFile("runtime/targets/online/results/recent.json", _nowUtc.AddDays(-5));
+
+            Cleanup();
+
+            Assert.That(Directory.Exists(onlineTarget), Is.True);
+            Assert.That(File.Exists(staleCommand), Is.False);
+            Assert.That(File.Exists(staleCommandError), Is.False);
+            Assert.That(File.Exists(staleResult), Is.False);
+            Assert.That(File.Exists(recentCommand), Is.True);
+            Assert.That(File.Exists(recentResult), Is.True);
+        }
+
+        [Test]
         public void CleanupExpired_RemovesOldWorkflowRunsButKeepsActiveRun()
         {
             var failedRun = ResolvePath("workflows/runs/wf_failed");
