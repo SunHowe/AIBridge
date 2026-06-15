@@ -15,4 +15,4 @@
 - 编排分支只定义流程、角色、artifact 和 gate。
 - 具体 Unity 对象修改仍交给实施分支串行完成；如果实施分支被禁用，先请求确认。
 - `agent` / `manual` step 需要外部 executor，AIBridge CLI 只负责记录、导出和导入结构化结果。
-- 每个阶段结束时输出 compact handoff：已完成模式、释放的 Skills、下一步建议 Skills、artifact refs、gate 状态和未关闭风险。
+- 每个阶段结束时输出 compact handoff：已完成模式、关键产出、artifact refs、gate 状态、未关闭风险和下一步动作；Skill 字段按可观测输出中的 Skill 列出策略处理。
