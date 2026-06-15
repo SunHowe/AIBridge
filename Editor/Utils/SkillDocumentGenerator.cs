@@ -14,7 +14,7 @@ namespace AIBridge.Editor
         public const string ReferencesDirectoryName = "references";
         public const string DefaultReferenceFileName = CommandSkillDoc.DefaultReferenceFileName;
 
-        private const string GeneratedHeader = "<!-- AIBRIDGE:GENERATED COMMAND REFERENCE - DO NOT EDIT MANUALLY -->";
+        internal const string GeneratedHeader = "<!-- AIBRIDGE:GENERATED COMMAND REFERENCE - DO NOT EDIT MANUALLY -->";
 
         public static void GenerateReferenceFiles(string targetSkillRoot, IEnumerable<ICommand> commands)
         {
@@ -35,7 +35,7 @@ namespace AIBridge.Editor
 
                 var referenceFileName = NormalizeReferenceFileName(group.Key.TargetReferenceFileName);
                 var targetPath = Path.Combine(referenceDirectory, referenceFileName);
-                File.WriteAllText(targetPath, BuildReferenceFileContent(group), Encoding.UTF8);
+                SkillInstaller.WriteTextIfChanged(targetPath, BuildReferenceFileContent(group), Encoding.UTF8);
             }
         }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 
 namespace AIBridge.Editor.Tests
@@ -142,6 +143,38 @@ namespace AIBridge.Editor.Tests
             Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(true, false, false));
             Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(false, true, false));
             Assert.IsFalse(SkillInstaller.ShouldRunAutomaticInstall(false, false, true));
+        }
+
+        [Test]
+        public void ReinstallReportsSkillAlreadyUpToDateWhenContentIsUnchanged()
+        {
+            var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
+
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+            var results = SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+
+            Assert.AreEqual(IntegrationAction.AlreadyUpToDate, results[0].SkillFileAction);
+            Assert.AreEqual(IntegrationAction.AlreadyUpToDate, results[0].RootRuleAction);
+        }
+
+        [Test]
+        public void ReinstallKeepsAdditionalSkillTimestampsWhenContentIsUnchanged()
+        {
+            var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
+            AIBridgeProjectSettings.Instance.CodeIndex.EnableCodeIndex = true;
+
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+            var workflowSkillPath = Path.Combine(
+                ProjectRoot,
+                ".codex",
+                "skills",
+                "aibridge-development-workflow",
+                "SKILL.md");
+            var firstWriteTime = File.GetLastWriteTimeUtc(workflowSkillPath);
+
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+
+            Assert.AreEqual(firstWriteTime, File.GetLastWriteTimeUtc(workflowSkillPath));
         }
 
         private static void WriteCompleteCodeIndexDirectory(string codeIndexDir, string marker)

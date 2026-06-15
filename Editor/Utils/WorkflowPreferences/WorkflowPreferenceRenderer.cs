@@ -142,7 +142,15 @@ namespace AIBridge.Editor
             builder.AppendLine("- 实施分支完成改动后，按风险选择验证分支补充 Runtime、截图、UI 或多目标证据；如果验证分支被禁用，说明剩余风险。");
             builder.AppendLine("- 审查分支发现问题后，未得到修复授权前不直接改文件。");
             builder.AppendLine("- 编排分支只定义流程、角色、artifact 和 gate；具体 Unity 对象修改仍由实施分支串行完成。");
-            builder.AppendLine("- Mode Exit 或分支交接时同步交接 Skill 作用域：列出已释放的模式专用 Skill、下一分支建议加载的 Skill、必要 artifact refs、gate 状态和未关闭风险。");
+            builder.AppendLine("- Mode Exit 或分支交接时同步交接上下文：面向用户只列关键产出、必要 artifact refs、gate 状态、未关闭风险和下一步动作。");
+            builder.AppendLine();
+
+            builder.AppendLine("## Skill 列出策略");
+            builder.AppendLine();
+            builder.AppendLine("- `【入口：Preflight / Skill 路由】` 列 `baselineSkills`、`activeSkills`，必要时列 `deferredSkills` / `guardedSkills`。");
+            builder.AppendLine("- `【模式：...】` 进入时列当前 `Skills`，仅在 active Skills 变化时重新列。");
+            builder.AppendLine("- 执行进度、检查清单、Mode Exit 和面向用户的最终回复不列 `使用 Skills`、已释放 Skills 或下一步建议 Skills。");
+            builder.AppendLine("- 只有跨模式续跑、外部 agent 交接或 `workflow import` 需要结构化结果时，才在 `SkillHandoff` 数据中记录 releasedSkills / nextRecommendedSkills。");
             builder.AppendLine();
 
             builder.AppendLine("## 输出格式");

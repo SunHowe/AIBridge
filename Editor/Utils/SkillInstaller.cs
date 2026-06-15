@@ -790,7 +790,7 @@ namespace AIBridge.Editor
             }
 
             content = ApplyProjectVersionTokens(content);
-            File.WriteAllText(targetFile, content, Utf8NoBom);
+            WriteTextIfChanged(targetFile, content, Utf8NoBom);
         }
 
         private static List<AssistantIntegrationResult> InstallAssistantIntegrations(string projectRoot)
@@ -884,8 +884,13 @@ namespace AIBridge.Editor
 
             var existed = File.Exists(skillFilePath);
 
-            GenerateAndWriteSkillFile(sourceSkillPath, targetDir, skillFilePath);
-            return existed ? IntegrationAction.UpdatedBlock : IntegrationAction.CreatedFile;
+            var changed = GenerateAndWriteSkillFileIfChanged(sourceSkillPath, targetDir, skillFilePath);
+            if (!existed)
+            {
+                return IntegrationAction.CreatedFile;
+            }
+
+            return changed ? IntegrationAction.UpdatedBlock : IntegrationAction.AlreadyUpToDate;
         }
 
         private static List<string> InstallAdditionalSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
@@ -932,13 +937,11 @@ namespace AIBridge.Editor
                     continue;
                 }
 
-                // 子目录 Skill 独立安装，先清空目标目录可避免删除源文件后残留旧资源。
-                if (Directory.Exists(targetSkillDir))
-                {
-                    Directory.Delete(targetSkillDir, true);
-                }
-
-                CopyDirectory(sourceSkillDir, targetSkillDir);
+                // 子目录 Skill 独立安装，并在无内容变化时保持目标目录时间戳稳定。
+                var generatedFiles = string.Equals(skillName, WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName, StringComparison.OrdinalIgnoreCase)
+                    ? GetWorkflowGeneratedRelativePaths()
+                    : null;
+                SyncDirectory(sourceSkillDir, targetSkillDir, true, generatedFiles);
                 installedSkillFiles.Add(targetSkillFile);
             }
 
@@ -984,8 +987,8 @@ namespace AIBridge.Editor
             var branchSelectionPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.BranchSelectionRelativePath.Replace('/', Path.DirectorySeparatorChar));
             EnsureParentDirectory(preferencesPath);
             EnsureParentDirectory(branchSelectionPath);
-            File.WriteAllText(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
-            File.WriteAllText(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
             generatedFiles.Add(preferencesPath);
             generatedFiles.Add(branchSelectionPath);
             return generatedFiles;
@@ -1019,12 +1022,7 @@ namespace AIBridge.Editor
             }
 
             var targetBranchesDirectory = Path.Combine(workflowSkillDirectory, "references", "branches");
-            if (Directory.Exists(targetBranchesDirectory))
-            {
-                Directory.Delete(targetBranchesDirectory, true);
-            }
-
-            CopyDirectory(sourceBranchesDirectory, targetBranchesDirectory);
+            SyncDirectory(sourceBranchesDirectory, targetBranchesDirectory, true, null);
         }
 
         private static void GenerateSkillReferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
@@ -1074,11 +1072,51 @@ namespace AIBridge.Editor
                 : Path.Combine(projectRoot, skillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
         }
 
-        private static void CopyDirectory(string sourceDir, string targetDir)
+        private static bool GenerateAndWriteSkillFileIfChanged(string sourcePath, string targetDir, string targetFile)
+        {
+            if (!Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            var content = File.ReadAllText(sourcePath, System.Text.Encoding.UTF8);
+            var cliExeName = GetCliExecutableName();
+            var hardcodedPath = $"Packages/{PACKAGE_NAME}/Tools~/CLI/AIBridgeCLI.exe";
+            var fixedCliPath = "./" + CLI_CACHE_FOLDER + "/" + cliExeName;
+            if (content.Contains(hardcodedPath))
+            {
+                content = content.Replace(hardcodedPath, fixedCliPath);
+            }
+
+            content = ApplyProjectVersionTokens(content);
+            return WriteTextIfChanged(targetFile, content, Utf8NoBom);
+        }
+
+        private static HashSet<string> GetWorkflowGeneratedRelativePaths()
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                NormalizeRelativePath(WorkflowPreferenceRenderer.PreferencesRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.BranchSelectionRelativePath)
+            };
+        }
+
+        private static void SyncDirectory(string sourceDir, string targetDir, bool removeExtraEntries, HashSet<string> skippedRelativePaths)
+        {
+            SyncDirectory(sourceDir, targetDir, sourceDir, removeExtraEntries, skippedRelativePaths);
+        }
+
+        private static void SyncDirectory(
+            string sourceRoot,
+            string targetDir,
+            string currentSourceDir,
+            bool removeExtraEntries,
+            HashSet<string> skippedRelativePaths)
         {
             Directory.CreateDirectory(targetDir);
+            var expectedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var filePath in Directory.GetFiles(sourceDir))
+            foreach (var filePath in Directory.GetFiles(currentSourceDir))
             {
                 if (filePath.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1090,14 +1128,168 @@ namespace AIBridge.Editor
                     continue;
                 }
 
-                var targetFile = Path.Combine(targetDir, Path.GetFileName(filePath));
-                File.Copy(filePath, targetFile, true);
+                var fileName = Path.GetFileName(filePath);
+                if (ShouldSkipSyncFile(sourceRoot, filePath, skippedRelativePaths))
+                {
+                    expectedEntries.Add(fileName);
+                    continue;
+                }
+
+                expectedEntries.Add(fileName);
+                var targetFile = Path.Combine(targetDir, fileName);
+                CopyFileIfChanged(filePath, targetFile);
             }
 
-            foreach (var childDir in Directory.GetDirectories(sourceDir))
+            foreach (var childDir in Directory.GetDirectories(currentSourceDir))
             {
-                var targetChildDir = Path.Combine(targetDir, Path.GetFileName(childDir));
-                CopyDirectory(childDir, targetChildDir);
+                var dirName = Path.GetFileName(childDir);
+                expectedEntries.Add(dirName);
+                SyncDirectory(sourceRoot, Path.Combine(targetDir, dirName), childDir, removeExtraEntries, skippedRelativePaths);
+            }
+
+            if (!removeExtraEntries)
+            {
+                return;
+            }
+
+            foreach (var targetEntry in Directory.GetFileSystemEntries(targetDir))
+            {
+                if (!expectedEntries.Contains(Path.GetFileName(targetEntry)) && !ShouldKeepExtraSyncEntry(targetEntry))
+                {
+                    DeleteFileSystemEntry(targetEntry);
+                }
+            }
+        }
+
+        private static bool ShouldKeepExtraSyncEntry(string targetEntry)
+        {
+            if (Directory.Exists(targetEntry))
+            {
+                return DirectoryContainsGeneratedFiles(targetEntry);
+            }
+
+            return IsGeneratedFile(targetEntry);
+        }
+
+        private static bool DirectoryContainsGeneratedFiles(string directory)
+        {
+            foreach (var filePath in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                if (IsGeneratedFile(filePath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsGeneratedFile(string filePath)
+        {
+            var fileName = Path.GetFileName(filePath);
+            if (string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.PreferencesRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.BranchSelectionRelativePath), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            try
+            {
+                return File.Exists(filePath)
+                       && File.ReadLines(filePath).FirstOrDefault() == SkillDocumentGenerator.GeneratedHeader;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ShouldSkipSyncFile(string sourceRoot, string filePath, HashSet<string> skippedRelativePaths)
+        {
+            if (skippedRelativePaths == null || skippedRelativePaths.Count == 0)
+            {
+                return false;
+            }
+
+            return skippedRelativePaths.Contains(NormalizeRelativePath(GetRelativeFilePath(sourceRoot, filePath)));
+        }
+
+        private static void CopyFileIfChanged(string sourceFile, string targetFile)
+        {
+            if (!IsFileCopyNeeded(sourceFile, targetFile))
+            {
+                return;
+            }
+
+            var targetDir = Path.GetDirectoryName(targetFile);
+            if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            File.Copy(sourceFile, targetFile, true);
+        }
+
+        internal static bool WriteTextIfChanged(string path, string content, Encoding encoding)
+        {
+            if (File.Exists(path))
+            {
+                try
+                {
+                    if (File.ReadAllBytes(path).SequenceEqual(GetEncodedBytes(content, encoding)))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                    // Fall through and rewrite unreadable or invalid files.
+                }
+            }
+
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(path, content, encoding);
+            return true;
+        }
+
+        private static byte[] GetEncodedBytes(string content, Encoding encoding)
+        {
+            var preamble = encoding.GetPreamble();
+            var body = encoding.GetBytes(content);
+            if (preamble == null || preamble.Length == 0)
+            {
+                return body;
+            }
+
+            var bytes = new byte[preamble.Length + body.Length];
+            Buffer.BlockCopy(preamble, 0, bytes, 0, preamble.Length);
+            Buffer.BlockCopy(body, 0, bytes, preamble.Length, body.Length);
+            return bytes;
+        }
+
+        private static string NormalizeRelativePath(string path)
+        {
+            return string.IsNullOrEmpty(path)
+                ? string.Empty
+                : path.Replace('\\', '/').Trim('/');
+        }
+
+        private static void DeleteFileSystemEntry(string path)
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+                return;
+            }
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
 
@@ -1308,8 +1500,28 @@ namespace AIBridge.Editor
         {
             foreach (var result in results)
             {
+                if (!ShouldLogResult(result))
+                {
+                    continue;
+                }
+
                 AIBridgeLogger.LogInfo($"[SkillInstaller] {BuildCompactResultMessage(result)}");
             }
+        }
+
+        private static bool ShouldLogResult(AssistantIntegrationResult result)
+        {
+            if (result == null)
+            {
+                return false;
+            }
+
+            return IsVisibleAction(result.SkillFileAction) || IsVisibleAction(result.RootRuleAction);
+        }
+
+        private static bool IsVisibleAction(IntegrationAction action)
+        {
+            return action != IntegrationAction.None && action != IntegrationAction.AlreadyUpToDate;
         }
 
         private static string BuildCompactResultMessage(AssistantIntegrationResult result)
