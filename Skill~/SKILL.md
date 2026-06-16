@@ -39,7 +39,7 @@ Default `harness status` output is compact. Use `--detail full` or `--include-sn
 ## Operating Rules
 
 - Use `compile unity` for Unity validation. `compile dotnet` is an explicit extra solution-build check, not a Unity fallback.
-- For Unity imported asset path discovery, including script, prefab, scene, ScriptableObject, texture, material, audio, animation, shader, font, and model assets by name/type/filter, prefer `asset search/find --format paths` before host `rg --files` when the Editor is available. Use `rg --files` for ordinary repository files, unimported files, `.meta`, ProjectSettings, and arbitrary path regexes; use host file reads for file contents, and `asset read_text` only when host reads are unavailable.
+- For Unity imported asset path discovery, including script, prefab, scene, ScriptableObject, texture, material, audio, animation, shader, font, and model assets by name/type/filter, prefer `asset search/find --format paths` before host `rg --files` when the Editor is available. Use `rg --files` for ordinary repository files, unimported files, `.meta`, ProjectSettings, and arbitrary path regexes; use `text_index search` for literal/regex file content search when available, host file reads for direct file contents, and `asset read_text` only when host reads are unavailable.
 - Resource edit order: `inspector set_property/set_properties` -> `aibridge-prefab-patch` for supported complex Prefab edits -> Unity Editor scripts for high-level generated assets -> `unity-yaml-editing` only for unsupported serialized-file structure work.
 - For scene objects, Prefabs, and serialized Unity assets, discover targets with `inspector get_components/get_properties/find_property`, then write with AIBridge/Unity APIs when possible.
 - For prefab asset edits, use `assetPath + objectPath + componentName` or `componentIndex`; `componentInstanceId` is scene-only.
@@ -47,7 +47,7 @@ Default `harness status` output is compact. Use `--detail full` or `--include-sn
 - `focus` is Windows CLI-only. `dialog` is CLI-only and omits dialog fields when no modal dialog is detected.
 - `input` requires Play Mode and an active EventSystem; pair it with `gameview`, `screenshot`, and `get_logs` for UI interaction checks.
 - `runtime` talks to `AIBridgeRuntime` in a Player or Play Mode target. Run quick `runtime list_targets` first, use `runtime list_targets --probe true` only when local port scanning is needed, then target `latest` or a specific target id. For UI work, start with `runtime.ui.snapshot`; button entries include screen coordinates and screen rects for direct clicks, and `runtime.input.key` covers semantic submit/cancel/tab/move input.
-- Code Index is optional. For C# semantic lookup use `aibridge-code-index` only when installed and enabled; use `rg`, file reads, and regular AIBridge commands for literal, non-C#, asset, scene, prefab, or unavailable Code Index searches.
+- Code Index is optional. For C# semantic lookup use `aibridge-code-index` only when installed and enabled; use `text_index`, `rg`, file reads, and regular AIBridge commands for literal, non-C#, asset, scene, prefab, or unavailable Code Index searches.
 - AIBridge automatically cleans expired `.aibridge` cache according to Settings. Do not proactively enumerate or delete `.aibridge` files for routine disk maintenance; only run maintenance commands or guide the user to Settings when the user explicitly asks for cleanup, investigation, or manual maintenance.
 
 ## Related Skills

@@ -1377,14 +1377,14 @@ namespace AIBridge.Editor
             {
                 return AIBridgeEditorText.For(
                     language,
-                    "Code Index: enabled. For C# code lookup or source navigation, load `aibridge-code-index` first when the query can be expressed as symbol, definition, reference, implementation, derived type, caller, or diagnostic lookup. For Unity imported asset or script asset name/type lookup, use `asset search/find --format paths` when AIBridge and the Editor are available. Use `rg` for literal content, fuzzy text, non-C# repository files, arbitrary path regexes, or when Code Index/AIBridge is unavailable.",
-                    "Code Index：已启用。C# 代码查找或源码导航中，只要查询可表达为符号、定义、引用、实现、派生类型、调用者或诊断查询，应优先加载 `aibridge-code-index`。Unity 已导入资源或脚本资源的名称/类型查找中，当 AIBridge 和 Editor 可用时使用 `asset search/find --format paths`。字面量内容、模糊文本、非 C# 仓库文件、任意路径正则或 Code Index/AIBridge 不可用时使用 `rg`。");
+                    "Code Index: enabled. For C# code lookup or source navigation, load `aibridge-code-index` first when the query can be expressed as symbol, definition, reference, implementation, derived type, caller, or diagnostic lookup. For Unity imported asset or script asset name/type lookup, use `asset search/find --format paths` when AIBridge and the Editor are available. Use `text_index search` for literal or regex content search when available; use `rg` for fuzzy text, non-indexed repository files, arbitrary path regexes, or when Text Index/Code Index/AIBridge is unavailable.",
+                    "Code Index：已启用。C# 代码查找或源码导航中，只要查询可表达为符号、定义、引用、实现、派生类型、调用者或诊断查询，应优先加载 `aibridge-code-index`。Unity 已导入资源或脚本资源的名称/类型查找中，当 AIBridge 和 Editor 可用时使用 `asset search/find --format paths`。字面量或正则内容搜索优先使用 `text_index search`；模糊文本、未索引仓库文件、任意路径正则或 Text Index/Code Index/AIBridge 不可用时使用 `rg`。");
             }
 
             return AIBridgeEditorText.For(
                 language,
-                "Code Index: disabled. Do not call `code_index`; use `asset search/find --format paths` for Unity imported asset name/type lookup when AIBridge and the Editor are available, and use `rg` plus file reads for ordinary code/content searches.",
-                "Code Index：已关闭。不要调用 `code_index`；当 AIBridge 和 Editor 可用时，Unity 已导入资源的名称/类型查找使用 `asset search/find --format paths`，普通代码/内容搜索使用 `rg` 和文件读取。");
+                "Code Index: disabled. Do not call `code_index`; use `asset search/find --format paths` for Unity imported asset name/type lookup when AIBridge and the Editor are available, use `text_index search` for literal or regex content search when available, and use `rg` plus file reads as fallback.",
+                "Code Index：已关闭。不要调用 `code_index`；当 AIBridge 和 Editor 可用时，Unity 已导入资源的名称/类型查找使用 `asset search/find --format paths`；字面量或正则内容搜索优先使用 `text_index search`；不可用时使用 `rg` 和文件读取。");
         }
 
         private static bool ShouldInstallSkillDirectory(string sourceSkillDir)

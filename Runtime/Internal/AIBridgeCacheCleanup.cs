@@ -52,6 +52,8 @@ namespace AIBridge.Runtime.Internal
         private static readonly string[] ScreenshotExtensions = { ".png", ".jpg", ".jpeg", ".gif" };
         private static readonly string[] CodeIndexCleanupDirectories = { "snapshot", "logs", "cache", "temp", "index", "daemon", "daemon-processes" };
         private static readonly string[] CodeIndexCleanupFiles = { "status.json", "lock.json", "daemon-process.json", "daemon-launch.lock" };
+        private static readonly string[] TextIndexCleanupDirectories = { "file-grams", "postings" };
+        private static readonly string[] TextIndexCleanupFiles = { "manifest.json" };
 
         public static AIBridgeCacheCleanupSettings NormalizeSettings(AIBridgeCacheCleanupSettings settings)
         {
@@ -163,6 +165,7 @@ namespace AIBridge.Runtime.Internal
             CleanRuntimeHttpCache(context);
             CleanWorkflowRuns(context);
             CleanCodeIndex(context);
+            CleanTextIndex(context);
             CleanSkillLibraryCache(context);
             CleanScripts(context);
             CleanProfiler(context);
@@ -284,6 +287,31 @@ namespace AIBridge.Runtime.Internal
             for (var i = 0; i < CodeIndexCleanupFiles.Length; i++)
             {
                 context.DeleteFile(Path.Combine(indexDirectory, CodeIndexCleanupFiles[i]));
+            }
+        }
+
+        private static void CleanTextIndex(CleanupContext context)
+        {
+            var indexDirectory = Path.Combine(context.BridgeDirectory, "text-index");
+            if (!Directory.Exists(indexDirectory))
+            {
+                return;
+            }
+
+            var lastUsedUtc = GetLastUsedUtc(indexDirectory, false);
+            if (!IsExpired(lastUsedUtc, context.CutoffUtc))
+            {
+                return;
+            }
+
+            for (var i = 0; i < TextIndexCleanupDirectories.Length; i++)
+            {
+                context.DeleteDirectory(Path.Combine(indexDirectory, TextIndexCleanupDirectories[i]));
+            }
+
+            for (var i = 0; i < TextIndexCleanupFiles.Length; i++)
+            {
+                context.DeleteFile(Path.Combine(indexDirectory, TextIndexCleanupFiles[i]));
             }
         }
 
