@@ -985,12 +985,20 @@ namespace AIBridge.Editor
             SyncWorkflowBranchDocuments(sourceSkillRoot, workflowSkillDirectory);
             var preferencesPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.PreferencesRelativePath.Replace('/', Path.DirectorySeparatorChar));
             var branchSelectionPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.BranchSelectionRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var graphManifestPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.GraphManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var implementationBranchManifestPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
             EnsureParentDirectory(preferencesPath);
             EnsureParentDirectory(branchSelectionPath);
+            EnsureParentDirectory(graphManifestPath);
+            EnsureParentDirectory(implementationBranchManifestPath);
             WriteTextIfChanged(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
             WriteTextIfChanged(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(graphManifestPath, WorkflowPreferenceRenderer.RenderGraphManifest(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(implementationBranchManifestPath, WorkflowPreferenceRenderer.RenderImplementationBranchManifest(), Utf8NoBom);
             generatedFiles.Add(preferencesPath);
             generatedFiles.Add(branchSelectionPath);
+            generatedFiles.Add(graphManifestPath);
+            generatedFiles.Add(implementationBranchManifestPath);
             return generatedFiles;
         }
 
@@ -1097,7 +1105,9 @@ namespace AIBridge.Editor
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 NormalizeRelativePath(WorkflowPreferenceRenderer.PreferencesRelativePath),
-                NormalizeRelativePath(WorkflowPreferenceRenderer.BranchSelectionRelativePath)
+                NormalizeRelativePath(WorkflowPreferenceRenderer.BranchSelectionRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.GraphManifestRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath)
             };
         }
 
@@ -1188,7 +1198,9 @@ namespace AIBridge.Editor
         {
             var fileName = Path.GetFileName(filePath);
             if (string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.PreferencesRelativePath), StringComparison.OrdinalIgnoreCase)
-                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.BranchSelectionRelativePath), StringComparison.OrdinalIgnoreCase))
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.BranchSelectionRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.GraphManifestRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath), StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

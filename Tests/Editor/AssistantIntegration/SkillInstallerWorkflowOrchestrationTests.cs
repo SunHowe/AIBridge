@@ -70,13 +70,32 @@ namespace AIBridge.Editor.Tests
             var workflowSkillPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "SKILL.md");
             var preferencesPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "project-workflow-preferences.md");
             var branchSelectionPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "branch-selection.md");
+            var branchManifestPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "implementation-branch.manifest.json");
 
             AssertNoUtf8Bom(aibridgeSkillPath);
             AssertNoUtf8Bom(workflowSkillPath);
             AssertNoUtf8Bom(preferencesPath);
             AssertNoUtf8Bom(branchSelectionPath);
+            AssertNoUtf8Bom(branchManifestPath);
             AssertStartsWithFrontmatter(aibridgeSkillPath);
             AssertStartsWithFrontmatter(workflowSkillPath);
+        }
+
+        [Test]
+        public void WorkflowInstallsImplementationBranchManifest()
+        {
+            var target = AssistantIntegrationRegistry.GetTargets().First(item => item.Id == "codex");
+
+            SkillInstaller.InstallAssistantIntegrations(ProjectRoot, new[] { target });
+
+            var manifestPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "implementation-branch.manifest.json");
+            Assert.IsTrue(File.Exists(manifestPath));
+
+            var manifest = File.ReadAllText(manifestPath);
+            StringAssert.Contains("\"branchId\": \"implementation\"", manifest);
+            StringAssert.Contains("\"id\": \"implementation-locate\"", manifest);
+            StringAssert.Contains("\"id\": \"implementation-verify\"", manifest);
+            StringAssert.Contains("\"kind\": \"OptionalFlow\"", manifest);
         }
 
         private static void AssertNoUtf8Bom(string path)

@@ -44,5 +44,6 @@
 ## 当前文档
 
 - `WorkflowsPanel.md`：`AIBridge/Workflows` 面板的产品定义文档
+- `WorkflowGraphPanel.md`：`AIBridge/Workflow Graph` 高级面板方案，定义用行为树风格图形展示 workflow 分支、recipe、run、gate 和 handoff 的产品边界；同名展示页为 `WorkflowGraphPanel.html`
 - `workflow-guide/README.md`：AIBridge Workflow 设计、需求讨论分支、`.aibridge/plan` 工作底稿、正式文档同步与证据校验总览；`README.md` 负责索引，完整展示页为 `index.html`
 - `workflow-guide/AIBridgeLoopsAnalysis.md`：AIBridge loops / FSM 分析、官方资料对照、缺口与优化建议
