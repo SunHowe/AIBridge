@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using AIBridgeCLI.Core;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace AIBridgeCLI
 {
     partial class Program
     {
         /// <summary>
-        /// 执行 Unity TestRunner 测试，并轮询状态直到结束或超时。
+        /// 执行 Unity TestRunner 测试，并按本次 runId 轮询状态直到结束或超时。
         /// </summary>
         static int HandleTestRun(ParsedArgs parsed, OutputMode outputMode)
         {
@@ -24,12 +25,14 @@ namespace AIBridgeCLI
 
             var sender = CreateCommandSender(commandTimeout, parsed);
             var startTime = DateTime.Now;
+            var runId = PathHelper.GenerateCommandId();
 
             var startParams = new Dictionary<string, object>
             {
                 { "action", "run" },
                 { "mode", parsed.Options.TryGetValue("mode", out var mode) ? mode : "EditMode" },
-                { "timeout", testTimeout }
+                { "timeout", testTimeout },
+                { "runId", runId }
             };
 
             AddOptionalParam(startParams, "testName", parsed.Options, "test-name");
@@ -52,7 +55,7 @@ namespace AIBridgeCLI
             {
                 if (!IsTransportTimeoutError(startResult.error))
                 {
-                    return FinishTestResult(parsed, outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), startResult.error, false, false, false);
+                    return FinishTestResult(parsed, outputMode, TestResultPayload.FromFailure(runId, startResult.error));
                 }
 
                 if (outputMode == OutputMode.Pretty)
@@ -62,14 +65,14 @@ namespace AIBridgeCLI
             }
             else
             {
-                var data = startResult.data as Newtonsoft.Json.Linq.JObject;
-                var startStatus = (string)data?["status"] ?? "running";
-                var attachedToExistingRun = (bool?)data?["attachedToExistingRun"] ?? false;
-                var startedByInvocation = (bool?)data?["startedByInvocation"] ?? false;
-
-                if (startStatus == "passed" || startStatus == "failed")
+                var data = startResult.data as JObject;
+                if (data != null)
                 {
-                    return OutputFinalTestStatus(parsed, outputMode, data, startedByInvocation, attachedToExistingRun, true, startTime);
+                    var startPayload = BuildTestPayload(data, runId, startTime, null);
+                    if (startPayload.IsFinal)
+                    {
+                        return FinishTestResult(parsed, outputMode, startPayload);
+                    }
                 }
             }
 
@@ -83,7 +86,8 @@ namespace AIBridgeCLI
                     type = "test",
                     @params = new Dictionary<string, object>
                     {
-                        { "action", "status" }
+                        { "action", "status" },
+                        { "runId", runId }
                     }
                 });
 
@@ -92,22 +96,29 @@ namespace AIBridgeCLI
                     continue;
                 }
 
-                var statusData = statusResult.data as Newtonsoft.Json.Linq.JObject;
-                var status = (string)statusData?["status"] ?? "idle";
-                if (status == "running" || status == "idle")
+                var statusData = statusResult.data as JObject;
+                if (statusData == null)
                 {
                     continue;
                 }
 
-                return OutputFinalTestStatus(parsed, outputMode, statusData, false, false, true, startTime);
+                var statusPayload = BuildTestPayload(statusData, runId, startTime, null);
+                if (!statusPayload.IsFinal)
+                {
+                    continue;
+                }
+
+                return FinishTestResult(parsed, outputMode, statusPayload);
             }
 
-            return FinishTestResult(parsed, outputMode, false, "timeout", null, (DateTime.Now - startTime).TotalSeconds, null, 0, 0, 0, 0, 0,
-                new List<object>(), $"Test run timed out after {testTimeout}ms. Unity may still be running tests.", false, false, false);
+            return FinishTestResult(parsed, outputMode, TestResultPayload.TimedOut(
+                runId,
+                (DateTime.Now - startTime).TotalSeconds,
+                $"Test run timed out after {testTimeout}ms. Unity may still be running tests or the run may still be queued."));
         }
 
         /// <summary>
-        /// 查询最近一次 Unity TestRunner 测试状态。
+        /// 查询最近一次或指定 runId 的 Unity TestRunner 测试状态。
         /// </summary>
         static int HandleTestStatus(ParsedArgs parsed, OutputMode outputMode)
         {
@@ -116,67 +127,74 @@ namespace AIBridgeCLI
                 : DEFAULT_TIMEOUT;
 
             var sender = CreateCommandSender(transportTimeout, parsed);
+            var statusParams = new Dictionary<string, object>
+            {
+                { "action", "status" }
+            };
+            AddOptionalParam(statusParams, "runId", parsed.Options, "run-id");
+
             var result = sender.SendCommand(new CommandRequest
             {
                 id = PathHelper.GenerateCommandId(),
                 type = "test",
-                @params = new Dictionary<string, object>
-                {
-                    { "action", "status" }
-                }
+                @params = statusParams
             });
 
             if (!result.success)
             {
-                return FinishTestResult(parsed, outputMode, false, "failed", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), result.error, false, false, false);
+                return FinishTestResult(parsed, outputMode, TestResultPayload.FromFailure(null, result.error));
             }
 
-            var data = result.data as Newtonsoft.Json.Linq.JObject;
+            var data = result.data as JObject;
             if (data == null)
             {
-                return FinishTestResult(parsed, outputMode, true, "idle", null, 0, null, 0, 0, 0, 0, 0, new List<object>(), null, false, false, true);
+                return FinishTestResult(parsed, outputMode, new TestResultPayload
+                {
+                    Success = true,
+                    Status = "idle",
+                    StatusConfirmed = true,
+                    FailedTests = new List<object>(),
+                    QueuePosition = -1
+                });
             }
 
-            var status = (string)data["status"] ?? "idle";
-            var mode = (string)data["mode"];
-            var duration = (double?)data["duration"] ?? 0;
-            var startedAt = (string)data["startedAt"];
-            var total = (int?)data["total"] ?? 0;
-            var passed = (int?)data["passed"] ?? 0;
-            var failed = (int?)data["failed"] ?? 0;
-            var skipped = (int?)data["skipped"] ?? 0;
-            var inconclusive = (int?)data["inconclusive"] ?? 0;
-            var failedTests = ConvertFailedTests(data["failedTests"] as Newtonsoft.Json.Linq.JArray);
-            var attachedToExistingRun = (bool?)data["attachedToExistingRun"] ?? false;
-            var startedByInvocation = (bool?)data["startedByInvocation"] ?? false;
-            var success = status == "idle" || status == "running" || status == "passed";
+            var payload = BuildTestPayload(data, null, DateTime.Now, null);
+            payload.Success = payload.Status == "idle" || payload.Status == "queued" || payload.Status == "running" || payload.Status == "passed";
+            payload.StatusConfirmed = true;
 
-            return FinishTestResult(parsed, outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
-                failedTests, null, startedByInvocation, attachedToExistingRun, true);
+            return FinishTestResult(parsed, outputMode, payload);
         }
 
-        static int OutputFinalTestStatus(ParsedArgs parsed, OutputMode outputMode, Newtonsoft.Json.Linq.JObject data,
-            bool startedByInvocation, bool attachedToExistingRun, bool statusConfirmed, DateTime startTime)
+        static TestResultPayload BuildTestPayload(JObject data, string fallbackRunId, DateTime startTime, string fallbackError)
         {
-            var status = (string)data?["status"] ?? "failed";
-            var mode = (string)data?["mode"];
-            var duration = (double?)data?["duration"] ?? (DateTime.Now - startTime).TotalSeconds;
-            var startedAt = (string)data?["startedAt"];
-            var total = (int?)data?["total"] ?? 0;
-            var passed = (int?)data?["passed"] ?? 0;
-            var failed = (int?)data?["failed"] ?? 0;
-            var skipped = (int?)data?["skipped"] ?? 0;
-            var inconclusive = (int?)data?["inconclusive"] ?? 0;
-            var failedTests = ConvertFailedTests(data?["failedTests"] as Newtonsoft.Json.Linq.JArray);
-            startedByInvocation = (bool?)data?["startedByInvocation"] ?? startedByInvocation;
-            attachedToExistingRun = (bool?)data?["attachedToExistingRun"] ?? attachedToExistingRun;
-            var success = status == "passed";
-
-            return FinishTestResult(parsed, outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
-                failedTests, null, startedByInvocation, attachedToExistingRun, statusConfirmed);
+            var payload = new TestResultPayload
+            {
+                RunId = (string)data?["runId"] ?? fallbackRunId,
+                Status = (string)data?["status"] ?? "failed",
+                Mode = (string)data?["mode"],
+                QueuedAt = (string)data?["queuedAt"],
+                StartedAt = (string)data?["startedAt"],
+                Duration = (double?)data?["duration"] ?? (DateTime.Now - startTime).TotalSeconds,
+                Total = (int?)data?["total"] ?? 0,
+                Passed = (int?)data?["passed"] ?? 0,
+                Failed = (int?)data?["failed"] ?? 0,
+                Skipped = (int?)data?["skipped"] ?? 0,
+                Inconclusive = (int?)data?["inconclusive"] ?? 0,
+                StartedByInvocation = (bool?)data?["startedByInvocation"] ?? false,
+                AttachedToExistingRun = (bool?)data?["attachedToExistingRun"] ?? false,
+                QueuedByInvocation = (bool?)data?["queuedByInvocation"] ?? false,
+                StatusConfirmed = true,
+                QueuePosition = (int?)data?["queuePosition"] ?? -1,
+                FailedTests = ConvertFailedTests(data?["failedTests"] as JArray),
+                Error = (string)data?["error"] ?? fallbackError,
+                RequestedFilter = data?["requestedFilter"] as JObject,
+                ExecutedFilter = data?["executedFilter"] as JObject
+            };
+            payload.Success = payload.Status == "passed";
+            return payload;
         }
 
-        static List<object> ConvertFailedTests(Newtonsoft.Json.Linq.JArray failedTestsArray)
+        static List<object> ConvertFailedTests(JArray failedTestsArray)
         {
             var failedTests = new List<object>();
             if (failedTestsArray == null)
@@ -205,77 +223,101 @@ namespace AIBridgeCLI
             }
         }
 
-        static void OutputTestResult(OutputMode outputMode, bool success, string status, string mode, double duration, string startedAt,
-            int total, int passed, int failed, int skipped, int inconclusive,
-            List<object> failedTests, string error,
-            bool startedByInvocation, bool attachedToExistingRun, bool statusConfirmed)
+        static void OutputTestResult(OutputMode outputMode, TestResultPayload payload)
         {
+            if (payload == null)
+            {
+                payload = TestResultPayload.FromFailure(null, "Missing test result payload.");
+            }
+
             if (outputMode == OutputMode.Raw || outputMode == OutputMode.Quiet)
             {
                 var jsonResult = new
                 {
-                    success = success,
-                    status = status,
-                    mode = mode,
-                    startedAt = startedAt,
-                    duration = Math.Round(duration, 2),
-                    total = total,
-                    passed = passed,
-                    failed = failed,
-                    skipped = skipped,
-                    inconclusive = inconclusive,
-                    startedByInvocation = startedByInvocation,
-                    attachedToExistingRun = attachedToExistingRun,
-                    statusConfirmed = statusConfirmed,
-                    failedTests = failedTests,
-                    error = error
+                    success = payload.Success,
+                    runId = payload.RunId,
+                    status = payload.Status,
+                    mode = payload.Mode,
+                    queuedAt = payload.QueuedAt,
+                    startedAt = payload.StartedAt,
+                    duration = Math.Round(payload.Duration, 2),
+                    total = payload.Total,
+                    passed = payload.Passed,
+                    failed = payload.Failed,
+                    skipped = payload.Skipped,
+                    inconclusive = payload.Inconclusive,
+                    startedByInvocation = payload.StartedByInvocation,
+                    attachedToExistingRun = payload.AttachedToExistingRun,
+                    queuedByInvocation = payload.QueuedByInvocation,
+                    statusConfirmed = payload.StatusConfirmed,
+                    queuePosition = payload.QueuePosition,
+                    requestedFilter = payload.RequestedFilter,
+                    executedFilter = payload.ExecutedFilter,
+                    failedTests = payload.FailedTests,
+                    error = payload.Error
                 };
                 Console.WriteLine(JsonConvert.SerializeObject(jsonResult, Formatting.None));
                 return;
             }
 
-            if (success && status != "running" && status != "idle")
+            if (payload.Success && payload.Status != "running" && payload.Status != "idle" && payload.Status != "queued")
             {
-                OutputFormatter.PrintSuccess($"Unity tests passed in {duration:F1}s");
+                OutputFormatter.PrintSuccess($"Unity tests passed in {payload.Duration:F1}s");
             }
-            else if (status == "running")
+            else if (payload.Status == "queued")
+            {
+                OutputFormatter.PrintInfo("Unity tests are queued.");
+            }
+            else if (payload.Status == "running")
             {
                 OutputFormatter.PrintInfo("Unity tests are still running.");
             }
-            else if (status == "idle")
+            else if (payload.Status == "idle")
             {
                 OutputFormatter.PrintInfo("No Unity test run is active.");
             }
-            else if (!string.IsNullOrEmpty(error))
+            else if (!string.IsNullOrEmpty(payload.Error))
             {
-                OutputFormatter.PrintError(error);
+                OutputFormatter.PrintError(payload.Error);
             }
-            else if (status == "timeout")
+            else if (payload.Status == "timeout")
             {
-                OutputFormatter.PrintError($"Unity tests timed out after {duration:F1}s");
+                OutputFormatter.PrintError($"Unity tests timed out after {payload.Duration:F1}s");
             }
             else
             {
-                OutputFormatter.PrintError($"Unity tests failed in {duration:F1}s");
+                OutputFormatter.PrintError($"Unity tests failed in {payload.Duration:F1}s");
             }
 
-            Console.WriteLine($"  status: {status}");
-            if (!string.IsNullOrEmpty(mode))
+            if (!string.IsNullOrEmpty(payload.RunId))
             {
-                Console.WriteLine($"  mode: {mode}");
+                Console.WriteLine($"  runId: {payload.RunId}");
             }
-            if (!string.IsNullOrEmpty(startedAt))
+            Console.WriteLine($"  status: {payload.Status}");
+            if (!string.IsNullOrEmpty(payload.Mode))
             {
-                Console.WriteLine($"  startedAt: {startedAt}");
+                Console.WriteLine($"  mode: {payload.Mode}");
             }
-            Console.WriteLine($"  duration: {duration:F2}s");
-            Console.WriteLine($"  total: {total}");
-            Console.WriteLine($"  passed: {passed}");
-            Console.WriteLine($"  failed: {failed}");
-            Console.WriteLine($"  skipped: {skipped}");
-            Console.WriteLine($"  inconclusive: {inconclusive}");
+            if (!string.IsNullOrEmpty(payload.QueuedAt))
+            {
+                Console.WriteLine($"  queuedAt: {payload.QueuedAt}");
+            }
+            if (!string.IsNullOrEmpty(payload.StartedAt))
+            {
+                Console.WriteLine($"  startedAt: {payload.StartedAt}");
+            }
+            Console.WriteLine($"  duration: {payload.Duration:F2}s");
+            if (payload.QueuePosition >= 0)
+            {
+                Console.WriteLine($"  queuePosition: {payload.QueuePosition}");
+            }
+            Console.WriteLine($"  total: {payload.Total}");
+            Console.WriteLine($"  passed: {payload.Passed}");
+            Console.WriteLine($"  failed: {payload.Failed}");
+            Console.WriteLine($"  skipped: {payload.Skipped}");
+            Console.WriteLine($"  inconclusive: {payload.Inconclusive}");
 
-            foreach (var failedTest in failedTests)
+            foreach (var failedTest in payload.FailedTests)
             {
                 var failedTestObj = failedTest as dynamic;
                 Console.WriteLine($"  failedTest: {failedTestObj.name}");
@@ -286,36 +328,100 @@ namespace AIBridgeCLI
             }
         }
 
-        static int FinishTestResult(ParsedArgs parsed, OutputMode outputMode, bool success, string status, string mode, double duration, string startedAt,
-            int total, int passed, int failed, int skipped, int inconclusive,
-            List<object> failedTests, string error,
-            bool startedByInvocation, bool attachedToExistingRun, bool statusConfirmed)
+        static int FinishTestResult(ParsedArgs parsed, OutputMode outputMode, TestResultPayload payload)
         {
+            if (payload == null)
+            {
+                payload = TestResultPayload.FromFailure(null, "Missing test result payload.");
+            }
+
             TryAttachWorkflowResult(parsed, new CommandResult
             {
-                success = success,
-                error = error,
+                success = payload.Success,
+                error = payload.Error,
                 data = new
                 {
-                    status = status,
-                    mode = mode,
-                    startedAt = startedAt,
-                    duration = Math.Round(duration, 2),
-                    total = total,
-                    passed = passed,
-                    failed = failed,
-                    skipped = skipped,
-                    inconclusive = inconclusive,
-                    startedByInvocation = startedByInvocation,
-                    attachedToExistingRun = attachedToExistingRun,
-                    statusConfirmed = statusConfirmed,
-                    failedTests = failedTests
+                    runId = payload.RunId,
+                    status = payload.Status,
+                    mode = payload.Mode,
+                    queuedAt = payload.QueuedAt,
+                    startedAt = payload.StartedAt,
+                    duration = Math.Round(payload.Duration, 2),
+                    total = payload.Total,
+                    passed = payload.Passed,
+                    failed = payload.Failed,
+                    skipped = payload.Skipped,
+                    inconclusive = payload.Inconclusive,
+                    startedByInvocation = payload.StartedByInvocation,
+                    attachedToExistingRun = payload.AttachedToExistingRun,
+                    queuedByInvocation = payload.QueuedByInvocation,
+                    statusConfirmed = payload.StatusConfirmed,
+                    queuePosition = payload.QueuePosition,
+                    requestedFilter = payload.RequestedFilter,
+                    executedFilter = payload.ExecutedFilter,
+                    failedTests = payload.FailedTests
                 }
-            }, success ? 0 : 1);
+            }, payload.Success ? 0 : 1);
 
-            OutputTestResult(outputMode, success, status, mode, duration, startedAt, total, passed, failed, skipped, inconclusive,
-                failedTests, error, startedByInvocation, attachedToExistingRun, statusConfirmed);
-            return success ? 0 : 1;
+            OutputTestResult(outputMode, payload);
+            return payload.Success ? 0 : 1;
+        }
+
+        private sealed class TestResultPayload
+        {
+            public bool Success;
+            public string RunId;
+            public string Status;
+            public string Mode;
+            public string QueuedAt;
+            public string StartedAt;
+            public double Duration;
+            public int Total;
+            public int Passed;
+            public int Failed;
+            public int Skipped;
+            public int Inconclusive;
+            public bool StartedByInvocation;
+            public bool AttachedToExistingRun;
+            public bool QueuedByInvocation;
+            public bool StatusConfirmed;
+            public int QueuePosition;
+            public List<object> FailedTests;
+            public string Error;
+            public JObject RequestedFilter;
+            public JObject ExecutedFilter;
+
+            public bool IsFinal => Status == "passed" || Status == "failed" || Status == "timeout";
+
+            public static TestResultPayload FromFailure(string runId, string error)
+            {
+                return new TestResultPayload
+                {
+                    Success = false,
+                    RunId = runId,
+                    Status = "failed",
+                    Duration = 0,
+                    FailedTests = new List<object>(),
+                    Error = error,
+                    StatusConfirmed = false,
+                    QueuePosition = -1
+                };
+            }
+
+            public static TestResultPayload TimedOut(string runId, double duration, string error)
+            {
+                return new TestResultPayload
+                {
+                    Success = false,
+                    RunId = runId,
+                    Status = "timeout",
+                    Duration = duration,
+                    FailedTests = new List<object>(),
+                    Error = error,
+                    StatusConfirmed = false,
+                    QueuePosition = -1
+                };
+            }
         }
     }
 }

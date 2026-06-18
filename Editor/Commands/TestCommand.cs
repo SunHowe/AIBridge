@@ -45,6 +45,7 @@ $CLI test status
         {
             var modeText = request.GetParam("mode", "EditMode");
             var timeoutMs = request.GetParam("timeout", 120000);
+            var runId = request.GetParam<string>("runId", null);
             var testName = request.GetParam<string>("testName", null);
             var groupName = request.GetParam<string>("groupName", null);
             var assemblyName = request.GetParam<string>("assemblyName", null);
@@ -60,14 +61,16 @@ $CLI test status
                 return CommandResult.Failure(request.id, "PlayMode tests are not supported yet. Please use EditMode for now.");
             }
 
-            var startResult = TestRunTracker.StartRun(mode, testName, groupName, assemblyName, timeoutMs);
+            var startResult = TestRunTracker.StartRun(runId, mode, testName, groupName, assemblyName, timeoutMs);
             var snapshot = startResult.snapshot;
 
             return CommandResult.Success(request.id, new
             {
                 action = "run",
+                runId = snapshot.runId,
                 status = snapshot.status,
                 mode = snapshot.mode,
+                queuedAt = snapshot.queuedAt,
                 startedAt = snapshot.startedAt,
                 duration = snapshot.duration,
                 total = snapshot.total,
@@ -77,19 +80,27 @@ $CLI test status
                 inconclusive = snapshot.inconclusive,
                 failedTests = snapshot.failedTests,
                 startedByInvocation = startResult.startedByInvocation,
-                attachedToExistingRun = startResult.attachedToExistingRun
+                attachedToExistingRun = startResult.attachedToExistingRun,
+                queuedByInvocation = startResult.queuedByInvocation,
+                queuePosition = snapshot.queuePosition,
+                requestedFilter = snapshot.requestedFilter,
+                executedFilter = snapshot.executedFilter,
+                error = snapshot.error
             });
         }
 
         private CommandResult QueryStatus(CommandRequest request)
         {
-            var snapshot = TestRunTracker.GetSnapshot();
+            var runId = request.GetParam<string>("runId", null);
+            var snapshot = TestRunTracker.GetSnapshot(runId);
 
             return CommandResult.Success(request.id, new
             {
                 action = "status",
+                runId = snapshot.runId,
                 status = snapshot.status,
                 mode = snapshot.mode,
+                queuedAt = snapshot.queuedAt,
                 startedAt = snapshot.startedAt,
                 duration = snapshot.duration,
                 total = snapshot.total,
@@ -99,7 +110,12 @@ $CLI test status
                 inconclusive = snapshot.inconclusive,
                 failedTests = snapshot.failedTests,
                 startedByInvocation = snapshot.startedByInvocation,
-                attachedToExistingRun = snapshot.attachedToExistingRun
+                attachedToExistingRun = snapshot.attachedToExistingRun,
+                queuedByInvocation = snapshot.status == "queued",
+                queuePosition = snapshot.queuePosition,
+                requestedFilter = snapshot.requestedFilter,
+                executedFilter = snapshot.executedFilter,
+                error = snapshot.error
             });
         }
 

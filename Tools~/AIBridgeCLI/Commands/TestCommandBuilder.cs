@@ -27,7 +27,10 @@ namespace AIBridgeCLI.Commands
                 new ParameterInfo("assembly-name", "Assembly name, mapped to Unity Filter.assemblyNames", false, null),
                 new ParameterInfo("timeout", "Total wait timeout in milliseconds", false, "120000")
             },
-            ["status"] = new List<ParameterInfo>()
+            ["status"] = new List<ParameterInfo>
+            {
+                new ParameterInfo("run-id", "Specific Unity test run id returned by test run", false, null)
+            }
         };
 
         public override CommandRequest Build(string action, Dictionary<string, string> options)
@@ -37,6 +40,7 @@ namespace AIBridgeCLI.Commands
             RenameParam(request.@params, "test-name", "testName");
             RenameParam(request.@params, "group-name", "groupName");
             RenameParam(request.@params, "assembly-name", "assemblyName");
+            RenameParam(request.@params, "run-id", "runId");
 
             return request;
         }
