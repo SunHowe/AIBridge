@@ -335,39 +335,52 @@ namespace AIBridgeCLI.Core
 
             if (status.dialogs != null)
             {
-                foreach (var dialog in status.dialogs)
+                foreach (var target in targets)
                 {
-                    foreach (var target in targets)
+                    if (target == null || string.IsNullOrWhiteSpace(target.Value))
                     {
-                        if (target == null || string.IsNullOrWhiteSpace(target.Value))
-                        {
-                            continue;
-                        }
-
-                        var button = DialogService.SelectButton(dialog, target.Value, target.Value);
-                        if (button == null)
-                        {
-                            continue;
-                        }
-
-                        var click = DialogService.Click(target.Value, target.Value, dialog.id);
-                        if (click.success)
-                        {
-                            handled = true;
-                            return null;
-                        }
-
-                        return new BlockingDialogDiagnostic
-                        {
-                            Error = "Unity is blocked by a modal dialog, and batch dialog auto-click failed.",
-                            Data = new
-                            {
-                                dialog = status,
-                                click = click,
-                                autoClickTargets = GetTargetValues(targets)
-                            }
-                        };
+                        continue;
                     }
+
+                    var choice = target.AllowsChoiceMatch() ? target.Value : null;
+                    var buttonText = target.AllowsButtonMatch() ? target.Value : null;
+                    var selection = DialogService.SelectButton(status.dialogs, choice, buttonText, null);
+                    if (!selection.Success)
+                    {
+                        if (string.Equals(selection.ErrorCode, "dialog_button_ambiguous", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new BlockingDialogDiagnostic
+                            {
+                                Error = "Unity is blocked by a modal dialog, and batch dialog auto-click is ambiguous.",
+                                Data = new
+                                {
+                                    dialog = status,
+                                    autoClickError = selection.Error,
+                                    autoClickTargets = GetTargetValues(targets)
+                                }
+                            };
+                        }
+
+                        continue;
+                    }
+
+                    var click = DialogService.Click(choice, buttonText, selection.Dialog.id);
+                    if (click.success)
+                    {
+                        handled = true;
+                        return null;
+                    }
+
+                    return new BlockingDialogDiagnostic
+                    {
+                        Error = "Unity is blocked by a modal dialog, and batch dialog auto-click failed.",
+                        Data = new
+                        {
+                            dialog = status,
+                            click = click,
+                            autoClickTargets = GetTargetValues(targets)
+                        }
+                    };
                 }
             }
 

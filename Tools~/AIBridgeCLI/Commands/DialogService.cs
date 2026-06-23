@@ -178,6 +178,69 @@ namespace AIBridgeCLI.Commands
             return dialogs[0];
         }
 
+        internal static DialogButtonSelection SelectButton(List<DialogInfo> dialogs, string choice, string buttonText, string dialogId)
+        {
+            if (dialogs == null || dialogs.Count == 0)
+            {
+                return DialogButtonSelection.FromFailure("No matching Unity dialog was found.", "dialog_not_found", null);
+            }
+
+            var candidateDialogs = new List<DialogInfo>();
+            if (!string.IsNullOrWhiteSpace(dialogId))
+            {
+                var dialog = SelectDialog(dialogs, dialogId);
+                if (dialog == null)
+                {
+                    return DialogButtonSelection.FromFailure("No matching Unity dialog was found.", "dialog_not_found", null);
+                }
+
+                candidateDialogs.Add(dialog);
+            }
+            else
+            {
+                candidateDialogs.AddRange(dialogs);
+            }
+
+            var matches = new List<DialogButtonMatch>();
+            foreach (var dialog in candidateDialogs)
+            {
+                if (dialog == null || dialog.buttons == null)
+                {
+                    continue;
+                }
+
+                foreach (var button in dialog.buttons)
+                {
+                    if (ButtonMatches(button, choice, buttonText))
+                    {
+                        matches.Add(new DialogButtonMatch
+                        {
+                            Dialog = dialog,
+                            Button = button
+                        });
+                    }
+                }
+            }
+
+            if (matches.Count == 1)
+            {
+                return DialogButtonSelection.FromSuccess(matches[0].Dialog, matches[0].Button);
+            }
+
+            if (matches.Count > 1)
+            {
+                return DialogButtonSelection.FromFailure(
+                    "Multiple Unity dialog buttons matched. Provide --dialog-id or --button to choose one exactly.",
+                    "dialog_button_ambiguous",
+                    candidateDialogs.Count == 1 ? candidateDialogs[0] : null);
+            }
+
+            return DialogButtonSelection.FromFailure(
+                "No matching dialog button was found.",
+                "dialog_button_not_found",
+                candidateDialogs.Count == 1 ? candidateDialogs[0] : null);
+        }
+
         internal static DialogButtonInfo SelectButton(DialogInfo dialog, string choice, string buttonText)
         {
             if (dialog == null || dialog.buttons == null || dialog.buttons.Count == 0)
@@ -189,6 +252,11 @@ namespace AIBridgeCLI.Commands
             {
                 foreach (var button in dialog.buttons)
                 {
+                    if (button == null || !button.enabled)
+                    {
+                        continue;
+                    }
+
                     if (string.Equals(button.text, buttonText, StringComparison.OrdinalIgnoreCase) ||
                         ButtonTextMatches(button.text, buttonText))
                     {
@@ -199,10 +267,14 @@ namespace AIBridgeCLI.Commands
 
             if (!string.IsNullOrWhiteSpace(choice))
             {
-                var normalizedChoice = NormalizeChoice(choice);
                 foreach (var button in dialog.buttons)
                 {
-                    if (string.Equals(button.choice, normalizedChoice, StringComparison.OrdinalIgnoreCase))
+                    if (button == null || !button.enabled)
+                    {
+                        continue;
+                    }
+
+                    if (ButtonMatchesChoice(button, choice))
                     {
                         return button;
                     }
@@ -222,6 +294,27 @@ namespace AIBridgeCLI.Commands
             var normalized = NormalizeButtonTextForChoice(value);
             switch (normalized)
             {
+                case "取消":
+                case "关闭":
+                case "關閉":
+                case "cancel":
+                case "close":
+                case "abort":
+                case "dismiss":
+                    return "cancel";
+                case "确认":
+                case "確認":
+                case "确定":
+                case "確定":
+                case "ok":
+                case "okay":
+                    return "ok";
+                case "是":
+                case "yes":
+                    return "yes";
+                case "否":
+                case "no":
+                    return "no";
                 case "dontsave":
                 case "don'tsave":
                 case "don\u2019tsave":
@@ -229,29 +322,44 @@ namespace AIBridgeCLI.Commands
                 case "don\u2019t save":
                 case "dont save":
                 case "do not save":
+                case "不保存":
                 case "discard":
                 case "discard changes":
+                case "放弃":
+                case "放棄":
                     return "discard";
-                case "ok":
-                    return "ok";
-                case "yes":
-                    return "yes";
-                case "no":
-                    return "no";
                 case "save":
                 case "save changes":
+                case "保存":
                     return "save";
-                case "cancel":
-                    return "cancel";
-                case "close":
-                    return "close";
                 case "delete":
+                case "remove":
+                case "删除":
+                case "刪除":
                     return "delete";
                 case "replace":
+                case "overwrite":
+                case "替换":
+                case "替換":
+                case "覆盖":
+                case "覆蓋":
                     return "replace";
                 default:
                     return normalized;
             }
+        }
+
+        internal static DialogButtonInfo CreateButtonInfo(string id, string text, bool enabled)
+        {
+            var choices = enabled ? BuildChoiceList(text) : new List<string>();
+            return new DialogButtonInfo
+            {
+                id = id,
+                text = text,
+                choice = choices.Count > 0 ? choices[0] : null,
+                choices = choices.Count > 0 ? choices : null,
+                enabled = enabled
+            };
         }
 
         internal static string InferChoice(string text)
@@ -261,56 +369,140 @@ namespace AIBridgeCLI.Commands
                 return null;
             }
 
+            var choices = BuildChoiceList(text);
+            return choices.Count > 0 ? choices[0] : null;
+        }
+
+        private static List<string> BuildChoiceList(string text)
+        {
+            var choices = new List<string>();
             var normalized = NormalizeButtonTextForChoice(text);
             if (normalized == "don't save" || normalized == "dont save" || normalized == "do not save" ||
                 normalized.Contains("don't save") || normalized.Contains("dont save") ||
-                normalized.Contains("do not save") ||
-                normalized.Contains("discard"))
+                normalized.Contains("do not save") || normalized.Contains("不保存") ||
+                normalized.Contains("discard") || normalized.Contains("放弃") || normalized.Contains("放棄"))
             {
-                return "discard";
+                AddChoice(choices, "discard");
+                return choices;
             }
 
             if (normalized == "save" || normalized.Contains("save"))
             {
-                return "save";
+                AddChoice(choices, "save");
+                return choices;
             }
 
-            if (normalized == "cancel" || normalized.Contains("cancel"))
+            if (normalized == "cancel" || normalized.Contains("cancel") ||
+                normalized == "close" || normalized.Contains("close") ||
+                normalized == "abort" || normalized.Contains("abort") ||
+                normalized == "dismiss" || normalized.Contains("dismiss") ||
+                normalized == "取消" || normalized.Contains("取消") ||
+                normalized == "关闭" || normalized.Contains("关闭") ||
+                normalized == "關閉" || normalized.Contains("關閉"))
             {
-                return "cancel";
+                AddChoice(choices, "cancel");
+                return choices;
             }
 
-            if (normalized == "ok" || normalized == "okay")
+            if (normalized == "ok" || normalized == "okay" ||
+                normalized == "确定" || normalized == "確認" || normalized == "确认" || normalized == "確定")
             {
-                return "ok";
+                AddChoice(choices, "ok");
+                return choices;
             }
 
-            if (normalized == "yes")
+            if (normalized == "yes" || normalized == "是")
             {
-                return "yes";
+                AddChoice(choices, "yes");
+                return choices;
             }
 
-            if (normalized == "no")
+            if (normalized == "no" || normalized == "否")
             {
-                return "no";
+                AddChoice(choices, "no");
+                return choices;
             }
 
-            if (normalized.Contains("delete") || normalized.Contains("remove"))
+            if (normalized.Contains("delete") || normalized.Contains("remove") ||
+                normalized.Contains("删除") || normalized.Contains("刪除"))
             {
-                return "delete";
+                AddChoice(choices, "delete");
+                return choices;
             }
 
-            if (normalized.Contains("replace") || normalized.Contains("overwrite"))
+            if (normalized.Contains("replace") || normalized.Contains("overwrite") ||
+                normalized.Contains("替换") || normalized.Contains("替換") ||
+                normalized.Contains("覆盖") || normalized.Contains("覆蓋"))
             {
-                return "replace";
+                AddChoice(choices, "replace");
+                return choices;
             }
 
-            if (normalized.Contains("close"))
+            return choices;
+        }
+
+        private static void AddChoice(List<string> choices, string value)
+        {
+            var normalized = NormalizeChoice(value);
+            if (string.IsNullOrWhiteSpace(normalized))
             {
-                return "close";
+                return;
             }
 
-            return normalized;
+            foreach (var choice in choices)
+            {
+                if (string.Equals(choice, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            choices.Add(normalized);
+        }
+
+        private static bool ButtonMatches(DialogButtonInfo button, string choice, string buttonText)
+        {
+            if (button == null || !button.enabled)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(buttonText) &&
+                (string.Equals(button.text, buttonText, StringComparison.OrdinalIgnoreCase) ||
+                 ButtonTextMatches(button.text, buttonText)))
+            {
+                return true;
+            }
+
+            return ButtonMatchesChoice(button, choice);
+        }
+
+        private static bool ButtonMatchesChoice(DialogButtonInfo button, string choice)
+        {
+            if (button == null || string.IsNullOrWhiteSpace(choice))
+            {
+                return false;
+            }
+
+            var normalizedChoice = NormalizeChoice(choice);
+            if (string.IsNullOrWhiteSpace(normalizedChoice))
+            {
+                return false;
+            }
+
+            // choice 是逻辑选项，不再把未知按钮文本推断为可点选项；精确文本请走 --button。
+            if (button.choices != null)
+            {
+                foreach (var buttonChoice in button.choices)
+                {
+                    if (string.Equals(buttonChoice, normalizedChoice, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return string.Equals(button.choice, normalizedChoice, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ButtonTextMatches(string left, string right)
@@ -339,6 +531,42 @@ namespace AIBridgeCLI.Commands
             }
 
             return normalized;
+        }
+
+        internal sealed class DialogButtonSelection
+        {
+            public bool Success { get; private set; }
+            public DialogInfo Dialog { get; private set; }
+            public DialogButtonInfo Button { get; private set; }
+            public string Error { get; private set; }
+            public string ErrorCode { get; private set; }
+
+            public static DialogButtonSelection FromSuccess(DialogInfo dialog, DialogButtonInfo button)
+            {
+                return new DialogButtonSelection
+                {
+                    Success = true,
+                    Dialog = dialog,
+                    Button = button
+                };
+            }
+
+            public static DialogButtonSelection FromFailure(string error, string errorCode, DialogInfo dialog)
+            {
+                return new DialogButtonSelection
+                {
+                    Success = false,
+                    Dialog = dialog,
+                    Error = error,
+                    ErrorCode = errorCode
+                };
+            }
+        }
+
+        private sealed class DialogButtonMatch
+        {
+            public DialogInfo Dialog { get; set; }
+            public DialogButtonInfo Button { get; set; }
         }
 
         internal static DialogStatusResult CreateStatusResult(Process process, string platform, List<DialogInfo> dialogs)

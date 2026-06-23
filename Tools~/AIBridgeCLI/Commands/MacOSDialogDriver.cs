@@ -174,6 +174,7 @@ namespace AIBridgeCLI.Commands
 
             try
             {
+                var records = new List<DialogWindowRecord>();
                 var count = CFArrayGetCount(windows);
                 for (long i = 0; i < count; i++)
                 {
@@ -184,30 +185,48 @@ namespace AIBridgeCLI.Commands
                         continue;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(dialogId) &&
-                        !string.Equals(dialog.id, dialogId, StringComparison.OrdinalIgnoreCase))
+                    records.Add(new DialogWindowRecord { Window = window, Dialog = dialog });
+                }
+
+                var dialogs = new List<DialogInfo>();
+                foreach (var record in records)
+                {
+                    dialogs.Add(record.Dialog);
+                }
+
+                var selection = DialogService.SelectButton(dialogs, choice, buttonText, dialogId);
+                if (!selection.Success)
+                {
+                    return new DialogClickResult
+                    {
+                        success = false,
+                        platform = PlatformName,
+                        processId = process.Id,
+                        dialog = selection.Dialog,
+                        error = selection.Error,
+                        errorCode = selection.ErrorCode
+                    };
+                }
+
+                foreach (var record in records)
+                {
+                    if (!string.Equals(record.Dialog.id, selection.Dialog.id, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
 
-                    var selectedButton = DialogService.SelectButton(dialog, choice, buttonText);
-                    if (selectedButton == null)
-                    {
-                        continue;
-                    }
-
-                    var clicked = TryPressMatchingButton(window, dialog.id, selectedButton);
+                    var clicked = TryPressMatchingButton(record.Window, record.Dialog.id, selection.Button);
                     return new DialogClickResult
                     {
                         success = clicked,
                         clicked = clicked ? (bool?)true : null,
                         platform = PlatformName,
                         processId = process.Id,
-                        dialogId = dialog.id,
-                        buttonId = selectedButton.id,
-                        buttonText = selectedButton.text,
-                        choice = selectedButton.choice,
-                        dialog = dialog,
+                        dialogId = record.Dialog.id,
+                        buttonId = selection.Button.id,
+                        buttonText = selection.Button.text,
+                        choice = selection.Button.choice,
+                        dialog = record.Dialog,
                         error = clicked ? null : "The matching dialog button could not be pressed.",
                         errorCode = clicked ? null : "dialog_button_press_failed"
                     };
@@ -307,13 +326,10 @@ namespace AIBridgeCLI.Commands
                     if (string.Equals(role, AXButtonRole, StringComparison.OrdinalIgnoreCase) &&
                         !string.IsNullOrWhiteSpace(text))
                     {
-                        buttons.Add(new DialogButtonInfo
-                        {
-                            id = childPrefix,
-                            text = text,
-                            choice = DialogService.InferChoice(text),
-                            enabled = CopyBoolAttribute(child, AXEnabledAttribute, true)
-                        });
+                        buttons.Add(DialogService.CreateButtonInfo(
+                            childPrefix,
+                            text,
+                            CopyBoolAttribute(child, AXEnabledAttribute, true)));
                     }
                     else if (string.Equals(role, AXStaticTextRole, StringComparison.OrdinalIgnoreCase) &&
                              !string.IsNullOrWhiteSpace(text))
@@ -513,6 +529,12 @@ namespace AIBridgeCLI.Commands
                 error = error,
                 errorCode = errorCode
             };
+        }
+
+        private sealed class DialogWindowRecord
+        {
+            public IntPtr Window { get; set; }
+            public DialogInfo Dialog { get; set; }
         }
     }
 }

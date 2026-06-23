@@ -232,7 +232,7 @@ $CLI dialog click --button "Don't Save"
 $CLI dialog wait --timeout 5000 --click cancel
 ```
 
-当 Unity 已被模态弹窗阻塞时，普通 Unity 命令会返回检测到的弹窗信息，而不是静默等待超时。返回内容包含可见按钮文本和 `save`、`discard`、`cancel` 等逻辑选项，方便 AI 决定下一步显式点击。无人值守流程可在 Unity 命令上加 `--on-dialog <choice>`，例如：
+当 Unity 已被模态弹窗阻塞时，普通 Unity 命令会返回检测到的弹窗信息，而不是静默等待超时。每个启用按钮都会返回精确可见文本；只有能稳定映射时才返回 `choices` 逻辑选项，例如 `save`、`discard`、`cancel`。如果按钮没有逻辑选项，应使用精确 `--button` 文本点击；如果按钮被禁用，或多个弹窗/按钮同时匹配同一逻辑选项，AIBridge 会明确返回错误而不是猜测点击。无人值守流程可在 Unity 命令上加 `--on-dialog <choice>`，例如：
 
 ```bash
 $CLI scene load --scenePath "Assets/Scenes/Main.unity" --on-dialog discard

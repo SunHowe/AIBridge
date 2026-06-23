@@ -303,7 +303,7 @@ namespace AIBridgeCLI.Commands
                     continue;
                 }
 
-                AddTarget(targets, optionTokens[i + 1]);
+                AddTarget(targets, optionTokens[i + 1], token);
                 i++;
             }
 
@@ -315,7 +315,7 @@ namespace AIBridgeCLI.Commands
             var alternatives = SplitAlternatives(arguments);
             foreach (var alternative in alternatives)
             {
-                AddTarget(targets, alternative);
+                AddTarget(targets, alternative, "any");
             }
 
             return targets;
@@ -328,7 +328,7 @@ namespace AIBridgeCLI.Commands
                    string.Equals(token, "--click", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static void AddTarget(List<DialogAutoClickTarget> targets, string value)
+        private static void AddTarget(List<DialogAutoClickTarget> targets, string value, string kind)
         {
             var normalized = StripOptionalQuotes(value);
             if (string.IsNullOrWhiteSpace(normalized))
@@ -336,7 +336,27 @@ namespace AIBridgeCLI.Commands
                 return;
             }
 
-            targets.Add(new DialogAutoClickTarget { Value = normalized.Trim() });
+            targets.Add(new DialogAutoClickTarget
+            {
+                Value = normalized.Trim(),
+                Kind = NormalizeTargetKind(kind)
+            });
+        }
+
+        private static string NormalizeTargetKind(string kind)
+        {
+            if (string.Equals(kind, "--button", StringComparison.OrdinalIgnoreCase))
+            {
+                return "button";
+            }
+
+            if (string.Equals(kind, "--choice", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(kind, "--click", StringComparison.OrdinalIgnoreCase))
+            {
+                return "choice";
+            }
+
+            return "any";
         }
 
         private static List<string> SplitAlternatives(string text)
@@ -454,5 +474,20 @@ namespace AIBridgeCLI.Commands
     public sealed class DialogAutoClickTarget
     {
         public string Value { get; set; }
+        public string Kind { get; set; }
+
+        internal bool AllowsChoiceMatch()
+        {
+            return string.IsNullOrWhiteSpace(Kind) ||
+                   string.Equals(Kind, "choice", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(Kind, "any", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal bool AllowsButtonMatch()
+        {
+            return string.IsNullOrWhiteSpace(Kind) ||
+                   string.Equals(Kind, "button", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(Kind, "any", StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

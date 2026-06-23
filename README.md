@@ -232,7 +232,7 @@ $CLI dialog click --button "Don't Save"
 $CLI dialog wait --timeout 5000 --click cancel
 ```
 
-When Unity is already blocked by a modal dialog, normal Unity commands return the detected dialog details instead of silently waiting for a timeout. The response includes visible button text and logical choices such as `save`, `discard`, and `cancel`, so the assistant can choose the next explicit click. For unattended flows, pass `--on-dialog <choice>` to a Unity command, for example:
+When Unity is already blocked by a modal dialog, normal Unity commands return the detected dialog details instead of silently waiting for a timeout. Each enabled button reports its exact visible text plus a `choices` list when a stable logical choice is available, such as `save`, `discard`, or `cancel`; if no logical choice is shown, click by exact `--button` text. AIBridge rejects disabled or ambiguous logical matches instead of guessing between multiple dialogs or buttons. For unattended flows, pass `--on-dialog <choice>` to a Unity command, for example:
 
 ```bash
 $CLI scene load --scenePath "Assets/Scenes/Main.unity" --on-dialog discard

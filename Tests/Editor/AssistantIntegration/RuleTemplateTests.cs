@@ -177,7 +177,7 @@ namespace AIBridge.Editor.Tests
 
             var reviewBranchPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "branches", "review.md");
             var reviewBranch = File.ReadAllText(reviewBranchPath);
-            StringAssert.Contains("普通代码内容或非语义文本搜索优先使用 `$CLI text_index search`", reviewBranch);
+            StringAssert.Contains("字面量、注释、普通代码内容或非语义文本搜索优先使用 `$CLI text_index search \"literal\"`", reviewBranch);
         }
 
         [Test]
