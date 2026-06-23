@@ -6,6 +6,7 @@
 
 ## 工具选择
 
+- 常规热点报告：优先 `$CLI workflow run-cli --recipe performance-hotspot-investigation --inputs ".aibridge/workflows/perf-inputs.json" --timeout 30000`。
 - Editor / Play Mode Profiler 证据：优先 `$CLI profiler <action>`。
 - Player / Runtime 目标证据：优先 `$CLI runtime perf --target latest --duration 5s --interval 100ms`。
 - 多目标或平台差异：结合 `runtime-target-sweep` 或 `runtime-debug-investigation` recipe，并保留 target id、URL、日志、截图和 perf artifact。

@@ -22,6 +22,7 @@ $CLI workflow plan --recipe runtime-ui-validation --format markdown
 $CLI workflow init --recipe runtime-ui-validation
 $CLI workflow begin --recipe unity-change-implementation
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
+$CLI workflow run-cli --recipe performance-hotspot-investigation --inputs ".aibridge/workflows/perf-inputs.json" --timeout 30000
 $CLI workflow run-cli --recipe unity-sharded-review --allow-partial true
 $CLI workflow run-cli --recipe unity-sharded-review --resume <runId> --rerun failed
 $CLI harness status
@@ -220,7 +221,7 @@ Allowed `kind` values:
 
 Required gates failing make the run `failed` or `blocked`. Optional gate failures make evidence visible without forcing the run to fail.
 
-`artifactRequired` may filter by `artifactKind`, `schema`, and `stepId`. `externalVerdict` uses `allow` values such as `confirmed`. `uncertain` is reported as an evidence gap and does not count as pass or fail.
+`artifactRequired` may filter by `artifactKind`, `schema`, and `stepId`. `artifactKind` matches both persisted artifact `kind` and semantic command-result `semanticKind`, so a `command-result/runtime-perf` artifact satisfies `artifactKind=runtime-perf`. `externalVerdict` uses `allow` values such as `confirmed`. `uncertain` is reported as an evidence gap and does not count as pass or fail.
 
 ## External Result Schemas
 

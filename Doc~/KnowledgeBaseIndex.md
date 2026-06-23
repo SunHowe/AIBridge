@@ -108,21 +108,23 @@
 
 ## 内置 Recipes
 
-`workflow list` 当前确认有 8 个内置 recipes：
+`workflow list` 当前确认有 9 个内置 recipes：
 
 1. `bug-hunter-loop`
 2. `harness-readiness-check`
-3. `prefab-asset-sweep`
-4. `runtime-debug-investigation`
-5. `runtime-target-sweep`
-6. `runtime-ui-validation`
-7. `unity-change-implementation`
-8. `unity-sharded-review`
+3. `performance-hotspot-investigation`
+4. `prefab-asset-sweep`
+5. `runtime-debug-investigation`
+6. `runtime-target-sweep`
+7. `runtime-ui-validation`
+8. `unity-change-implementation`
+9. `unity-sharded-review`
 
 对应定位：
 
 - `bug-hunter-loop`：迭代采集证据、验证候选原因、只做一个确认修复
 - `harness-readiness-check`：先探测 harness、workflow、Unity 和 Runtime 能力
+- `performance-hotspot-investigation`：一键采集 Editor Profiler、Runtime 日志/截图/perf 证据并输出热点排查报告
 - `prefab-asset-sweep`：并行检查多个 Prefab / Scene / asset，再串行应用批准写入
 - `runtime-debug-investigation`：收集 Editor / Runtime 证据并输出诊断
 - `runtime-target-sweep`：汇总 Runtime target 健康状态

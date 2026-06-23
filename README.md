@@ -27,6 +27,7 @@ When HybridCLR is installed, AIBridge can also compile controlled temporary runt
 | Prefab / scene inspection | "Check every button prefab for missing click audio and dry-run the fix." | Asset search, prefab hierarchy, Inspector fields, Prefab Patch dry-run | Patch proposal, dry-run report |
 | Play Mode UI validation | "Enter Play Mode, click the inventory button, and confirm that the panel opens." | `input` click/drag/long-press, Game view screenshot, log checks | Screenshot/GIF, Error logs |
 | Player / mobile debugging | "The Android build login button does nothing. Collect evidence." | Runtime discover/status/logs/screenshot/perf, UI snapshot/find/click/key, handler calls | Target id, logs, screenshot, perf data |
+| Performance hotspot report | "Collect a 15-second performance report for the current Player target." | Performance workflow recipe, Editor Profiler snapshots, Runtime perf/log/screenshot evidence | Markdown report, perf artifacts |
 | Semantic code understanding | "Find the definition, references, and callers of InventoryItem." | Read-only `code_index`, with explicit text fallback when unavailable | Definition/reference/caller results |
 | Fast exact text search | "Find every prefab or config that mentions PaymentService." | Local `text_index` for literal/regex search across indexed project text | Path, line, preview results |
 | Multi-step workflow | "Shard-review Runtime Bridge risks, then run adversarial verification." | Workflow recipes, artifacts, gates, external verdicts, reports | Finding, Verdict, Markdown report |
@@ -195,6 +196,7 @@ $CLI runtime screenshot --target latest --workflow-run wf_20260529_213000_ab12cd
 $CLI workflow import --run wf_20260529_213000_ab12cd34 --step adversarial-verify --schema Verdict --file verdicts.json
 $CLI workflow export --recipe runtime-ui-validation --target codex-task-pack --output .aibridge/workflows/exports
 $CLI workflow run-cli --file ".aibridge/workflows/recipes/runtime-target-sweep.aibridge-workflow.json" --inputs ".aibridge/workflows/inputs.json"
+$CLI workflow run-cli --recipe performance-hotspot-investigation --inputs ".aibridge/workflows/perf-inputs.json" --timeout 30000
 $CLI workflow run-cli --recipe unity-sharded-review --allow-partial true
 $CLI workflow run-cli --recipe unity-sharded-review --resume wf_20260529_213000_ab12cd34 --rerun failed
 $CLI workflow status --run wf_20260529_213000_ab12cd34
@@ -204,7 +206,9 @@ $CLI workflow clean --older-than 30d --dry-run true
 $CLI workflow clean --older-than 3d --save-settings true --auto-clean true
 ```
 
-Built-in recipes include `bug-hunter-loop`, `harness-readiness-check`, `prefab-asset-sweep`, `runtime-debug-investigation`, `runtime-target-sweep`, `runtime-ui-validation`, `unity-change-implementation`, and `unity-sharded-review`.
+Built-in recipes include `bug-hunter-loop`, `harness-readiness-check`, `performance-hotspot-investigation`, `prefab-asset-sweep`, `runtime-debug-investigation`, `runtime-target-sweep`, `runtime-ui-validation`, `unity-change-implementation`, and `unity-sharded-review`.
+
+`performance-hotspot-investigation` is a one-click routine hotspot report. It collects Editor Profiler snapshots, Runtime status/log/screenshot evidence, and a bounded `runtime perf` sample, then writes a Markdown report with parsed FPS, frame-time, hitch, memory, GC, rendering, warning, and unsupported summaries. The default sample duration is 15 seconds, so pass a workflow timeout such as `--timeout 30000`.
 
 `runtime-debug-investigation` is for investigating Runtime, Player, Play Mode, UI, log, or performance symptoms. It checks evidence completeness first and does not treat Runtime errors themselves as workflow failure conditions; once a root cause is confirmed and a fix is requested, hand off to an implementation workflow.
 

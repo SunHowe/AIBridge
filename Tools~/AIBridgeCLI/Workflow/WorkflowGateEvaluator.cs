@@ -576,7 +576,7 @@ namespace AIBridgeCLI.Workflow
             }
 
             if (!string.IsNullOrWhiteSpace(artifactKind)
-                && !string.Equals(artifact.Kind, artifactKind, StringComparison.OrdinalIgnoreCase))
+                && !MatchesArtifactKind(artifact, artifactKind))
             {
                 return false;
             }
@@ -594,6 +594,12 @@ namespace AIBridgeCLI.Workflow
             }
 
             return true;
+        }
+
+        private static bool MatchesArtifactKind(WorkflowArtifactRef artifact, string artifactKind)
+        {
+            return string.Equals(artifact.Kind, artifactKind, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(artifact.SemanticKind, artifactKind, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsAllowedStatus(string status, List<string> allowed)

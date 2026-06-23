@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using AIBridgeCLI.Commands;
+using AIBridgeCLI.Workflow;
+using Newtonsoft.Json.Linq;
 
 namespace AIBridgeCLI.Tests
 {
@@ -10,6 +14,9 @@ namespace AIBridgeCLI.Tests
         {
             try
             {
+                WorkflowReport_IncludesRuntimePerformanceEvidence();
+                WorkflowReport_IncludesFailedRuntimePerformanceEvidence();
+                ArtifactRequiredGate_MatchesSemanticKind();
                 DialogButtonInfo_ExposesStrictLogicalChoices();
                 DialogButtonInfo_DoesNotExposeChoicesForDisabledButtons();
                 SelectButton_FindsUniqueMatchAcrossDialogs();
@@ -17,7 +24,7 @@ namespace AIBridgeCLI.Tests
                 SelectButton_RejectsAmbiguousChoiceAcrossDialogs();
                 SelectButton_RespectsExplicitDialogId();
                 BatchDialogAutoClickPlan_PreservesTargetKind();
-                Console.WriteLine("AIBridgeCLI dialog tests passed.");
+                Console.WriteLine("AIBridgeCLI tests passed.");
                 return 0;
             }
             catch (Exception ex)
@@ -25,6 +32,233 @@ namespace AIBridgeCLI.Tests
                 Console.Error.WriteLine(ex.Message);
                 return 1;
             }
+        }
+
+        private static void WorkflowReport_IncludesRuntimePerformanceEvidence()
+        {
+            var previousRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            var previousDirectory = Directory.GetCurrentDirectory();
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeCLI.Tests." + Guid.NewGuid().ToString("N"));
+            var artifactPath = Path.Combine(projectRoot, "perf-command-result.json");
+            try
+            {
+                Directory.CreateDirectory(projectRoot);
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", projectRoot);
+                ResetPathHelperCache();
+
+                File.WriteAllText(artifactPath, CreateRuntimePerfCommandResult().ToString());
+
+                var manifest = new WorkflowRunManifest
+                {
+                    RunId = "wf_perf_report_test",
+                    RecipeName = "performance-hotspot-investigation",
+                    StartedAtUtc = DateTime.UtcNow.ToString("o"),
+                    Status = "passed"
+                };
+                manifest.ArtifactRefs.Add(new WorkflowArtifactRef
+                {
+                    ArtifactId = "art_runtime_perf_cmd",
+                    Kind = "command-result",
+                    SemanticKind = "runtime-perf",
+                    Path = artifactPath,
+                    SourceCommand = "runtime perf --target latest --duration 15s --interval 100ms --hitchThresholdMs 50",
+                    CreatedAtUtc = DateTime.UtcNow.ToString("o")
+                });
+
+                var markdown = WorkflowReportWriter.WriteMarkdown(manifest);
+
+                AssertContains(markdown, "## Performance Evidence", "Report should include the performance section.");
+                AssertContains(markdown, "### Runtime Perf", "Report should include runtime perf subsection.");
+                AssertContains(markdown, "avg 58.4", "Report should include average FPS.");
+                AssertContains(markdown, "p95 24.2 ms", "Report should include p95 frame time.");
+                AssertContains(markdown, "2 >= 50 ms", "Report should include hitch count and threshold.");
+                AssertContains(markdown, "profilerRecorder", "Report should include recorder mode.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", previousRoot);
+                Directory.SetCurrentDirectory(previousDirectory);
+                ResetPathHelperCache();
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        private static void WorkflowReport_IncludesFailedRuntimePerformanceEvidence()
+        {
+            var previousRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            var previousDirectory = Directory.GetCurrentDirectory();
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeCLI.Tests." + Guid.NewGuid().ToString("N"));
+            var artifactPath = Path.Combine(projectRoot, "perf-command-result-failed.json");
+            try
+            {
+                Directory.CreateDirectory(projectRoot);
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", projectRoot);
+                ResetPathHelperCache();
+
+                File.WriteAllText(artifactPath, CreateFailedRuntimePerfCommandResult().ToString());
+
+                var manifest = new WorkflowRunManifest
+                {
+                    RunId = "wf_perf_report_failed_test",
+                    RecipeName = "performance-hotspot-investigation",
+                    StartedAtUtc = DateTime.UtcNow.ToString("o"),
+                    Status = "failed"
+                };
+                manifest.ArtifactRefs.Add(new WorkflowArtifactRef
+                {
+                    ArtifactId = "art_runtime_perf_cmd_failed",
+                    Kind = "command-result",
+                    SemanticKind = "runtime-perf",
+                    Path = artifactPath,
+                    SourceCommand = "runtime perf --target latest --duration 15s --interval 100ms --hitchThresholdMs 50",
+                    CreatedAtUtc = DateTime.UtcNow.ToString("o")
+                });
+
+                var markdown = WorkflowReportWriter.WriteMarkdown(manifest);
+
+                AssertContains(markdown, "## Performance Evidence", "Failed runtime perf report should include the performance section.");
+                AssertContains(markdown, "### Runtime Perf", "Failed runtime perf report should include runtime perf subsection.");
+                AssertContains(markdown, "`failed`", "Failed runtime perf report should show failed status.");
+                AssertContains(markdown, "Runtime target was not found", "Failed runtime perf report should surface the command error.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", previousRoot);
+                Directory.SetCurrentDirectory(previousDirectory);
+                ResetPathHelperCache();
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        private static void ArtifactRequiredGate_MatchesSemanticKind()
+        {
+            var artifactPath = Path.GetTempFileName();
+            try
+            {
+                File.WriteAllText(artifactPath, "{}");
+                var recipe = new WorkflowRecipe();
+                recipe.Gates.Add(new WorkflowGate
+                {
+                    Id = "runtime-perf-required",
+                    Kind = "artifactRequired",
+                    Required = true,
+                    ArtifactKind = "runtime-perf",
+                    Min = 1
+                });
+
+                var manifest = new WorkflowRunManifest();
+                manifest.ArtifactRefs.Add(new WorkflowArtifactRef
+                {
+                    ArtifactId = "art_runtime_perf_cmd",
+                    Kind = "command-result",
+                    SemanticKind = "runtime-perf",
+                    Path = artifactPath,
+                    CreatedAtUtc = DateTime.UtcNow.ToString("o")
+                });
+
+                var results = WorkflowGateEvaluator.Evaluate(recipe, manifest);
+
+                AssertEqual(1, results.Count, "Gate evaluator should return one result.");
+                AssertEqual("passed", results[0].Status, "artifactRequired should match semanticKind.");
+            }
+            finally
+            {
+                if (File.Exists(artifactPath))
+                {
+                    File.Delete(artifactPath);
+                }
+            }
+        }
+
+        private static JObject CreateRuntimePerfCommandResult()
+        {
+            return new JObject
+            {
+                ["id"] = "cmd_perf",
+                ["success"] = true,
+                ["exitCode"] = 0,
+                ["command"] = "runtime perf --target latest --duration 15s --interval 100ms --hitchThresholdMs 50",
+                ["data"] = new JObject
+                {
+                    ["success"] = true,
+                    ["data"] = new JObject
+                    {
+                        ["targetId"] = "player-1",
+                        ["durationMs"] = 15000,
+                        ["intervalMs"] = 100,
+                        ["sampleCount"] = 150,
+                        ["fps"] = new JObject
+                        {
+                            ["avg"] = 58.4,
+                            ["min"] = 41.2,
+                            ["max"] = 60.1
+                        },
+                        ["frameTimeMs"] = new JObject
+                        {
+                            ["avg"] = 17.1,
+                            ["p95"] = 24.2,
+                            ["p99"] = 49.7,
+                            ["max"] = 72.5,
+                            ["hitchCount"] = 2,
+                            ["hitchThresholdMs"] = 50
+                        },
+                        ["memory"] = new JObject
+                        {
+                            ["monoUsedBytes"] = 10485760,
+                            ["gcUsedBytes"] = 20971520,
+                            ["totalReservedBytes"] = 104857600,
+                            ["systemUsedBytes"] = 209715200,
+                            ["graphicsDriverBytes"] = 31457280
+                        },
+                        ["gc"] = new JObject
+                        {
+                            ["collectionCount0Delta"] = 1,
+                            ["allocatedBytesDelta"] = 5242880
+                        },
+                        ["rendering"] = new JObject
+                        {
+                            ["vSyncCount"] = 1,
+                            ["targetFrameRate"] = 60,
+                            ["graphicsDeviceType"] = "Direct3D11",
+                            ["screenWidth"] = 1920,
+                            ["screenHeight"] = 1080,
+                            ["renderPipeline"] = "Built-in"
+                        },
+                        ["recorderMode"] = "profilerRecorder",
+                        ["warnings"] = new JArray("ProfilerRecorder counter is unavailable: Total Reserved Memory"),
+                        ["unsupported"] = new JArray(new JObject
+                        {
+                            ["feature"] = "scriptFunctionTimings",
+                            ["reason"] = "Function-level script timings are not available through the stable Runtime bridge."
+                        })
+                    }
+                }
+            };
+        }
+
+        private static JObject CreateFailedRuntimePerfCommandResult()
+        {
+            return new JObject
+            {
+                ["id"] = "cmd_perf_failed",
+                ["success"] = false,
+                ["exitCode"] = 1,
+                ["command"] = "runtime perf --target latest --duration 15s --interval 100ms --hitchThresholdMs 50",
+                ["error"] = "Runtime target was not found. Start a Player with AIBridgeRuntime, run runtime discover for LAN targets, or pass --url/--target.",
+                ["data"] = new JObject
+                {
+                    ["transport"] = "http",
+                    ["runtimeDirectory"] = ".aibridge/runtime",
+                    ["target"] = "latest",
+                    ["action"] = "runtime.perf"
+                }
+            };
         }
 
         private static void DialogButtonInfo_ExposesStrictLogicalChoices()
@@ -168,6 +402,14 @@ namespace AIBridgeCLI.Tests
             throw new InvalidOperationException(message);
         }
 
+        private static void AssertContains(string value, string expected, string message)
+        {
+            if (value == null || value.IndexOf(expected, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                throw new InvalidOperationException(message + " Expected text: " + expected);
+            }
+        }
+
         private static void AssertEqual<T>(T expected, T actual, string message)
         {
             if (!EqualityComparer<T>.Default.Equals(expected, actual))
@@ -181,6 +423,15 @@ namespace AIBridgeCLI.Tests
             if (!condition)
             {
                 throw new InvalidOperationException(message);
+            }
+        }
+
+        private static void ResetPathHelperCache()
+        {
+            var field = typeof(AIBridgeCLI.Core.PathHelper).GetField("_exchangeDir", BindingFlags.Static | BindingFlags.NonPublic);
+            if (field != null)
+            {
+                field.SetValue(null, null);
             }
         }
     }

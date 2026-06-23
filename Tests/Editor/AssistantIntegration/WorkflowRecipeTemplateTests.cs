@@ -17,6 +17,7 @@ namespace AIBridge.Editor.Tests
             "runtime-target-sweep",
             "runtime-debug-investigation",
             "runtime-ui-validation",
+            "performance-hotspot-investigation",
             "prefab-asset-sweep",
             "bug-hunter-loop",
             "harness-readiness-check"
@@ -82,6 +83,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("skipped_requires_external_executor", schema);
             StringAssert.Contains("runtime-target-sweep", recipes);
             StringAssert.Contains("runtime-debug-investigation", recipes);
+            StringAssert.Contains("performance-hotspot-investigation", recipes);
             StringAssert.Contains("prefab-asset-sweep", recipes);
             StringAssert.Contains("harness-readiness-check", recipes);
             StringAssert.Contains("harness status", recipes);
