@@ -598,10 +598,10 @@ namespace AIBridge.Runtime
             try
             {
                 Directory.CreateDirectory(_screenshotsPath);
-                texture = ScreenCapture.CaptureScreenshotAsTexture();
+                texture = CaptureCurrentFrameTexture();
                 if (texture == null)
                 {
-                    result = AIBridgeRuntimeCommandResult.FromFailure(cmd.Id, "ScreenCapture returned no texture.");
+                    result = AIBridgeRuntimeCommandResult.FromFailure(cmd.Id, "Runtime screenshot returned no texture.");
                 }
                 else
                 {
@@ -653,6 +653,30 @@ namespace AIBridge.Runtime
             }
 
             WriteResult(result);
+        }
+
+        private static Texture2D CaptureCurrentFrameTexture()
+        {
+            var width = Screen.width;
+            var height = Screen.height;
+            if (width <= 0 || height <= 0)
+            {
+                return null;
+            }
+
+            // 避免直接依赖 UnityEngine.ScreenCaptureModule；Assets 安装模式下 Unity 2021 可能未引用该模块。
+            var previousActive = RenderTexture.active;
+            try
+            {
+                var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                texture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                texture.Apply();
+                return texture;
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+            }
         }
 
         private bool TryHandleRuntimeCodeExecute(AIBridgeRuntimeCommand cmd, out AIBridgeRuntimeCommandResult result, out bool asyncStarted)

@@ -254,8 +254,31 @@ namespace AIBridge.Editor
                 return texture2D;
             }
 
-            // Fallback: ScreenCapture (requires Game view to be focused)
-            return ScreenCapture.CaptureScreenshotAsTexture();
+            return CaptureActiveFrameTexture();
+        }
+
+        private static Texture2D CaptureActiveFrameTexture()
+        {
+            var width = Screen.width;
+            var height = Screen.height;
+            if (width <= 0 || height <= 0)
+            {
+                return null;
+            }
+
+            // Assets 安装模式下 Unity 2021 可能未引用 ScreenCaptureModule，使用 ReadPixels 避免编译期依赖。
+            var previousActive = RenderTexture.active;
+            try
+            {
+                var texture2D = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                texture2D.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                texture2D.Apply();
+                return texture2D;
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+            }
         }
 
         /// <summary>
