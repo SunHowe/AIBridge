@@ -128,10 +128,12 @@ namespace AIBridge.Editor
             public int RetentionDays = DefaultCacheCleanupRetentionDays;
         }
 
-        public const int CurrentDataVersion = 19;
+        public const int CurrentDataVersion = 20;
         public const string DefaultEditorLanguage = "English";
         public const string LegacySharedSkillRootDirectory = ".skills";
         public const string DefaultSkillRootDirectory = "";
+        public const bool DefaultUseCustomAIBridgeRootDirectory = false;
+        public const string DefaultCustomAIBridgeRootDirectory = "";
         public const int DefaultGifFrameCount = 50;
         public const int DefaultGifFps = 20;
         public const float DefaultGifScale = 0.5f;
@@ -189,6 +191,8 @@ namespace AIBridge.Editor
         [SerializeField] private string editorLanguage = DefaultEditorLanguage;
         [SerializeField] private bool editorLanguageInitialized;
         [SerializeField] private string skillRootDirectory = DefaultSkillRootDirectory;
+        [SerializeField] private bool useCustomAIBridgeRootDirectory = DefaultUseCustomAIBridgeRootDirectory;
+        [SerializeField] private string customAIBridgeRootDirectory = DefaultCustomAIBridgeRootDirectory;
         [SerializeField] private string scriptDirectory = DefaultScriptDirectory;
         [SerializeField] private GifRecorderSettingsData gifRecorder = new GifRecorderSettingsData();
         [SerializeField] private LogRetrievalSettingsData logRetrieval = new LogRetrievalSettingsData();
@@ -276,6 +280,51 @@ namespace AIBridge.Editor
 
                 skillRootDirectory = IsValidSkillRootDirectory(normalized) ? normalized : DefaultSkillRootDirectory;
             }
+        }
+
+        public bool UseCustomAIBridgeRootDirectory
+        {
+            get { return useCustomAIBridgeRootDirectory; }
+            set { useCustomAIBridgeRootDirectory = value; }
+        }
+
+        public string CustomAIBridgeRootDirectory
+        {
+            get
+            {
+                var normalized = AIBridgeRootDirectoryUtility.NormalizeConfiguredDirectory(customAIBridgeRootDirectory);
+                if (string.IsNullOrEmpty(normalized))
+                {
+                    return DefaultCustomAIBridgeRootDirectory;
+                }
+
+                return AIBridgeRootDirectoryUtility.IsValidConfiguredDirectory(normalized)
+                    ? normalized
+                    : DefaultCustomAIBridgeRootDirectory;
+            }
+            set
+            {
+                var normalized = AIBridgeRootDirectoryUtility.NormalizeConfiguredDirectory(value);
+                if (string.IsNullOrEmpty(normalized))
+                {
+                    customAIBridgeRootDirectory = DefaultCustomAIBridgeRootDirectory;
+                    return;
+                }
+
+                customAIBridgeRootDirectory = AIBridgeRootDirectoryUtility.IsValidConfiguredDirectory(normalized)
+                    ? normalized
+                    : DefaultCustomAIBridgeRootDirectory;
+            }
+        }
+
+        public string AIBridgeRootDirecotry
+        {
+            get { return AIBridgeRootDirectoryUtility.GetAIBridgeRootDirecotry(AIBridgeRootDirectoryUtility.GetProjectRoot()); }
+        }
+
+        public string AIBridgeRootDirectory
+        {
+            get { return AIBridgeRootDirecotry; }
         }
 
         public GifRecorderSettingsData GifRecorder
@@ -851,6 +900,7 @@ namespace AIBridge.Editor
 
             editorLanguage = EditorLanguage.ToString();
             skillRootDirectory = SkillRootDirectory;
+            customAIBridgeRootDirectory = CustomAIBridgeRootDirectory;
 
             var directory = Path.GetDirectoryName(SettingsFilePath);
             if (!string.IsNullOrEmpty(directory))
@@ -864,6 +914,7 @@ namespace AIBridge.Editor
                 true);
 
             WriteCacheCleanupSettingsMirror();
+            AIBridgeRootDirectoryUtility.WriteRootDirectoryMirrorNoThrow();
         }
 
         public void WriteCacheCleanupSettingsMirror()
@@ -986,6 +1037,12 @@ namespace AIBridge.Editor
                 cacheCleanup.RetentionDays = DefaultCacheCleanupRetentionDays;
             }
 
+            if (dataVersion < 20)
+            {
+                useCustomAIBridgeRootDirectory = DefaultUseCustomAIBridgeRootDirectory;
+                customAIBridgeRootDirectory = DefaultCustomAIBridgeRootDirectory;
+            }
+
             workflowUi.DefaultValidationLevel = NormalizeWorkflowValidationLevel(workflowUi.DefaultValidationLevel);
             if (workflowUi.SharedPromptPrefix == null)
             {
@@ -998,6 +1055,7 @@ namespace AIBridge.Editor
             }
 
             cacheCleanup.RetentionDays = AIBridgeCacheCleanup.ClampRetentionDays(cacheCleanup.RetentionDays);
+            customAIBridgeRootDirectory = CustomAIBridgeRootDirectory;
 
             if (dataVersion != CurrentDataVersion)
             {

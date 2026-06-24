@@ -16,7 +16,7 @@ namespace AIBridge.Editor
     {
         private const int SchemaVersion = 1;
         private const int DefaultFreshnessSeconds = 3600;
-        private const string PackageName = "cn.lys.aibridge";
+        private const string PackageName = AIBridgeRootDirectoryUtility.PackageName;
         private const string SnapshotRelativePath = ".aibridge/harness/capabilities.json";
 
         public static string GetSnapshotPath(string projectRoot)
@@ -113,7 +113,7 @@ namespace AIBridge.Editor
         {
             var packageRoots = ResolvePackageRoots(projectRoot);
             var packageRoot = packageRoots.FirstOrDefault();
-            var logicalRoot = "Packages/" + PackageName;
+            var logicalRoot = AIBridgeRootDirectoryUtility.DefaultAIBridgeRootDirectory;
             var reportedRoots = packageRoots.Select(root => (object)NormalizePath(root)).ToList();
             if (!reportedRoots.Any(root => string.Equals(Convert.ToString(root), logicalRoot, StringComparison.OrdinalIgnoreCase)))
             {
@@ -220,7 +220,7 @@ namespace AIBridge.Editor
             var builtInDirectory = string.IsNullOrWhiteSpace(packageRoot)
                 ? null
                 : Path.Combine(packageRoot, "Templates~", "Workflows");
-            var logicalBuiltInDirectory = "Packages/" + PackageName + "/Templates~/Workflows";
+            var logicalBuiltInDirectory = AIBridgeRootDirectoryUtility.DefaultAIBridgeRootDirectory + "/Templates~/Workflows";
             var builtInDirectories = ResolvePackageRoots(projectRoot)
                 .Select(root => Path.Combine(root, "Templates~", "Workflows"))
                 .Where(Directory.Exists)
@@ -311,47 +311,10 @@ namespace AIBridge.Editor
         private static List<string> ResolvePackageRoots(string projectRoot)
         {
             var roots = new List<string>();
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + PackageName);
-            if (packageInfo != null
-                && IsPackageRoot(packageInfo.resolvedPath)
-                && !IsProjectPackagesPath(projectRoot, packageInfo.resolvedPath))
+            var candidates = AIBridgeRootDirectoryUtility.GetCandidateRootDirectories(projectRoot);
+            for (var i = 0; i < candidates.Count; i++)
             {
-                AddPackageRoot(roots, packageInfo.resolvedPath);
-            }
-
-            // Git/UPM 包有时会让 PackageInfo 返回逻辑 Packages 路径，能力快照需要真实文件系统路径。
-            var packageCache = Path.Combine(projectRoot, "Library", "PackageCache");
-            if (Directory.Exists(packageCache))
-            {
-                var directCachePackage = Path.Combine(packageCache, PackageName);
-                if (IsPackageRoot(directCachePackage))
-                {
-                    AddPackageRoot(roots, directCachePackage);
-                }
-
-                foreach (var directory in Directory.EnumerateDirectories(packageCache, PackageName + "@*", SearchOption.TopDirectoryOnly))
-                {
-                    if (IsPackageRoot(directory))
-                    {
-                        AddPackageRoot(roots, directory);
-                    }
-                }
-            }
-
-            var embedded = Path.Combine(projectRoot, "Packages", PackageName);
-            if (IsPackageRoot(embedded))
-            {
-                AddPackageRoot(roots, embedded);
-            }
-
-            if (packageInfo != null && IsPackageRoot(packageInfo.resolvedPath))
-            {
-                AddPackageRoot(roots, packageInfo.resolvedPath);
-            }
-
-            if (IsPackageRoot(projectRoot))
-            {
-                AddPackageRoot(roots, projectRoot);
+                AddPackageRoot(roots, candidates[i]);
             }
 
             return roots;
@@ -373,24 +336,7 @@ namespace AIBridge.Editor
 
         private static bool IsPackageRoot(string directory)
         {
-            return !string.IsNullOrWhiteSpace(directory)
-                && Directory.Exists(directory)
-                && File.Exists(Path.Combine(directory, "package.json"))
-                && Directory.Exists(Path.Combine(directory, "Skill~"));
-        }
-
-        private static bool IsProjectPackagesPath(string projectRoot, string path)
-        {
-            if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(path))
-            {
-                return false;
-            }
-
-            var packagesRoot = Path.GetFullPath(Path.Combine(projectRoot, "Packages"))
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            var fullPath = Path.GetFullPath(path);
-            return fullPath.StartsWith(packagesRoot, StringComparison.OrdinalIgnoreCase);
+            return AIBridgeRootDirectoryUtility.IsAIBridgePackageRoot(directory);
         }
 
         private static string ReadPackageVersion(string packageRoot)

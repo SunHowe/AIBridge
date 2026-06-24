@@ -130,6 +130,8 @@ You can also clone this repository into a Unity project's `Packages` folder.
 
 Installed AIBridge Skills are written to each selected tool's default skills directory by default, such as `.codex/skills/` for Codex. You can set a custom directory in the `Workflows > Skills` tab, but custom directories may not be discovered automatically by the AI tool. Each AI tool receives a minimal RootRule and, only when needed for a custom directory, a plugin adapter that references the Skill root. The RootRule includes the fixed CLI path, common commands, host-tool `exec` routing, Skill root, and `aibridge-development-workflow` entry point; multi-branch routing and targeted checklists live in the workflow Skill. Advanced workflow orchestration guidance is installed as an AIBridge Skill and is loaded only for multi-agent workflow, adversarial verification, recipe, Runtime debug investigation, or Runtime target sweep tasks. Command references are generated under each installed Skill's `references/` directory.
 
+If the AIBridge package source is not under `Packages/cn.lys.aibridge`, enable `AIBridge/Settings > Directories > Use Custom AIBridge Root` and select the package source directory. When the option is disabled, empty, or points to a missing directory, AIBridge falls back to `Packages/cn.lys.aibridge`. The setting also writes `.aibridge/aibridge-root.json` so CLI workflow commands can resolve the same root.
+
 You can also open the `Workflows > Recommended Library` tab, refresh the default `obra/superpowers` repository, and install third-party Skills into the selected tools' skills directories.
 
 `Workflows > Workflow Options` stores project-level workflow preferences. Applying these options refreshes generated files under the installed `aibridge-development-workflow` Skill, including `references/project-workflow-preferences.md` and the generated branch selection rules.
@@ -138,7 +140,7 @@ You can also open the `Workflows > Recommended Library` tab, refresh the default
 
 AIBridge installs these user-facing Unity menu entries:
 
-- `AIBridge/Settings`: Basic, GIF, Logs, Directories, Scripts, Runtime, Code Index, Cache, and Actions.
+- `AIBridge/Settings`: Basic, GIF, Logs, Directories, Scripts, Runtime, Code Index, Cache, and Actions. The Directories tab includes the optional custom AIBridge package root.
 - `AIBridge/Workflows`: install integrations, choose AI tools, and configure workflow options.
 - `AIBridge/Players`: inspect Runtime targets, discovery cache, status, and cache cleanup.
 - `AIBridge/Workflow Graph`: advanced workflow graph view for routing, recipes, runs, gates, and handoff.

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using AIBridge.Editor;
 using AIBridge.Internal.Json;
 using UnityEditor;
 
@@ -93,12 +94,17 @@ namespace AIBridge.Editor.ScriptExecution.Commands
             var cliPath = Path.Combine(Directory.GetCurrentDirectory(), ".aibridge", "cli", "AIBridgeCLI.exe");
             if (!File.Exists(cliPath))
             {
-                cliPath = Path.Combine(Directory.GetCurrentDirectory(), "Packages", "cn.lys.aibridge", "Tools~", "CLI", "win-x64", "AIBridgeCLI.exe");
+                cliPath = AIBridgeRootDirectoryUtility.GetRootRelativePath(
+                    Directory.GetCurrentDirectory(),
+                    "Tools~/CLI/win-x64/AIBridgeCLI.exe");
             }
 
             if (!File.Exists(cliPath))
             {
-                return ScriptCommandResult.Fail("AIBridge CLI not found. Tried .aibridge/cli/AIBridgeCLI.exe and Packages/cn.lys.aibridge/Tools~/CLI/win-x64/AIBridgeCLI.exe");
+                return ScriptCommandResult.Fail("AIBridge CLI not found. Tried .aibridge/cli/AIBridgeCLI.exe and "
+                    + AIBridgeRootDirectoryUtility.GetRootRelativeDisplayPath(
+                        Directory.GetCurrentDirectory(),
+                        "Tools~/CLI/win-x64/AIBridgeCLI.exe"));
             }
 
             context.Log($"[Call] External execute: {cliPath} {cliArgs}");

@@ -14,7 +14,6 @@ namespace AIBridge.Editor
     [InitializeOnLoad]
     internal static class AIBridgeCodeIndexEditorUtility
     {
-        private const string PackageName = "cn.lys.aibridge";
         private const string CliCacheRelativeDirectory = ".aibridge/cli";
         private const string IndexRelativeDirectory = ".aibridge/code-index";
         private const string StatusFileName = "status.json";
@@ -88,20 +87,10 @@ namespace AIBridge.Editor
                 return cachedCli;
             }
 
-            var directCli = Path.Combine(projectRoot, "Packages", PackageName, "Tools~", "CLI", GetPlatformRid(), cliExeName);
+            var directCli = AIBridgeRootDirectoryUtility.GetRootRelativePath(projectRoot, "Tools~/CLI/" + GetPlatformRid() + "/" + cliExeName);
             if (File.Exists(directCli))
             {
                 return directCli;
-            }
-
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + PackageName);
-            if (packageInfo != null)
-            {
-                var packageCli = Path.Combine(packageInfo.resolvedPath, "Tools~", "CLI", GetPlatformRid(), cliExeName);
-                if (File.Exists(packageCli))
-                {
-                    return packageCli;
-                }
             }
 
             return null;

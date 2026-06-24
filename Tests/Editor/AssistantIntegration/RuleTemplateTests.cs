@@ -114,7 +114,10 @@ namespace AIBridge.Editor.Tests
         [Test]
         public void SkillInstallTargetRejectsPackageSourceSkillRoot()
         {
-            var sourceSkillRoot = Path.Combine(ProjectRoot, "Packages", "cn.lys.aibridge", "Skill~");
+            var sourceSkillRoot = Path.Combine(
+                ProjectRoot,
+                AIBridgeRootDirectoryUtility.DefaultAIBridgeRootDirectory.Replace('/', Path.DirectorySeparatorChar),
+                "Skill~");
 
             Assert.IsTrue(SkillInstaller.IsUnsafeSkillInstallTarget(sourceSkillRoot, sourceSkillRoot));
             Assert.IsTrue(SkillInstaller.IsUnsafeSkillInstallTarget(sourceSkillRoot, Path.Combine(sourceSkillRoot, "aibridge")));

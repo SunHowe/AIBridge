@@ -13,6 +13,7 @@ namespace AIBridgeCLI.Workflow
         private const string WorkflowsDirectoryName = "Workflows";
         private const string WorkflowRootName = "workflows";
         private const string PackageName = "cn.lys.aibridge";
+        private const string RootDirectoryMirrorRelativePath = ".aibridge/aibridge-root.json";
 
         public static string GetPackageRoot()
         {
@@ -20,6 +21,19 @@ namespace AIBridgeCLI.Workflow
             if (IsPackageRoot(envPackageRoot))
             {
                 return Path.GetFullPath(envPackageRoot);
+            }
+
+            var projectRoot = FindUnityProjectRoot();
+            var customPackageRoot = FindCustomPackageRootFromUnityProject(projectRoot);
+            if (!string.IsNullOrEmpty(customPackageRoot))
+            {
+                return customPackageRoot;
+            }
+
+            var packageRoot = FindPackageRootFromUnityProject(projectRoot);
+            if (!string.IsNullOrEmpty(packageRoot))
+            {
+                return packageRoot;
             }
 
             var candidates = new List<string>
@@ -35,13 +49,6 @@ namespace AIBridgeCLI.Workflow
                 {
                     return found;
                 }
-            }
-
-            var projectRoot = FindUnityProjectRoot();
-            var packageRoot = FindPackageRootFromUnityProject(projectRoot);
-            if (!string.IsNullOrEmpty(packageRoot))
-            {
-                return packageRoot;
             }
 
             return Directory.GetCurrentDirectory();
@@ -284,6 +291,153 @@ namespace AIBridgeCLI.Workflow
             }
 
             return null;
+        }
+
+        private static string FindCustomPackageRootFromUnityProject(string projectRoot)
+        {
+            if (string.IsNullOrWhiteSpace(projectRoot))
+            {
+                return null;
+            }
+
+            var mirrorPath = Path.Combine(projectRoot, RootDirectoryMirrorRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(mirrorPath))
+            {
+                return null;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(mirrorPath);
+                if (!ReadBool(json, "useCustomAIBridgeRootDirectory"))
+                {
+                    return null;
+                }
+
+                var configuredRoot = ReadString(json, "customAIBridgeRootDirectory");
+                var resolvedRoot = ResolveConfiguredRoot(projectRoot, configuredRoot);
+                if (Directory.Exists(resolvedRoot))
+                {
+                    return Path.GetFullPath(resolvedRoot);
+                }
+
+                var mirroredRoot = ReadString(json, "aibridgeRootDirecotry");
+                if (string.IsNullOrWhiteSpace(mirroredRoot))
+                {
+                    mirroredRoot = ReadString(json, "aibridgeRootDirectory");
+                }
+
+                if (Directory.Exists(mirroredRoot))
+                {
+                    return Path.GetFullPath(mirroredRoot);
+                }
+            }
+            catch
+            {
+                return null;
+            }
+
+            return null;
+        }
+
+        private static string ResolveConfiguredRoot(string projectRoot, string configuredRoot)
+        {
+            if (string.IsNullOrWhiteSpace(configuredRoot))
+            {
+                return null;
+            }
+
+            var normalized = configuredRoot.Trim().Replace('\\', '/');
+            var path = Path.IsPathRooted(normalized)
+                ? normalized
+                : Path.Combine(projectRoot, normalized.Replace('/', Path.DirectorySeparatorChar));
+            return Path.GetFullPath(path);
+        }
+
+        private static bool ReadBool(string json, string key)
+        {
+            var value = ReadRawValue(json, key);
+            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadString(string json, string key)
+        {
+            var token = "\"" + key + "\"";
+            var keyIndex = (json ?? string.Empty).IndexOf(token, StringComparison.Ordinal);
+            if (keyIndex < 0)
+            {
+                return null;
+            }
+
+            var colonIndex = json.IndexOf(':', keyIndex + token.Length);
+            if (colonIndex < 0)
+            {
+                return null;
+            }
+
+            var valueStart = colonIndex + 1;
+            while (valueStart < json.Length && char.IsWhiteSpace(json[valueStart]))
+            {
+                valueStart++;
+            }
+
+            if (valueStart >= json.Length || json[valueStart] != '"')
+            {
+                return null;
+            }
+
+            valueStart++;
+            var builder = new System.Text.StringBuilder();
+            for (var i = valueStart; i < json.Length; i++)
+            {
+                var c = json[i];
+                if (c == '\\' && i + 1 < json.Length)
+                {
+                    i++;
+                    builder.Append(json[i]);
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    return builder.ToString();
+                }
+
+                builder.Append(c);
+            }
+
+            return null;
+        }
+
+        private static string ReadRawValue(string json, string key)
+        {
+            var token = "\"" + key + "\"";
+            var keyIndex = (json ?? string.Empty).IndexOf(token, StringComparison.Ordinal);
+            if (keyIndex < 0)
+            {
+                return null;
+            }
+
+            var colonIndex = json.IndexOf(':', keyIndex + token.Length);
+            if (colonIndex < 0)
+            {
+                return null;
+            }
+
+            var valueStart = colonIndex + 1;
+            while (valueStart < json.Length && char.IsWhiteSpace(json[valueStart]))
+            {
+                valueStart++;
+            }
+
+            var valueEnd = valueStart;
+            while (valueEnd < json.Length && json[valueEnd] != ',' && json[valueEnd] != '\r' && json[valueEnd] != '\n' && json[valueEnd] != '}')
+            {
+                valueEnd++;
+            }
+
+            return json.Substring(valueStart, valueEnd - valueStart).Trim().Trim('"');
         }
 
         private static string TryMakeRelative(string root, string path)

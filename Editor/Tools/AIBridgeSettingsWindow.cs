@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 using AIBridge.Editor.ScriptExecution;
@@ -298,6 +299,8 @@ namespace AIBridge.Editor
         private void DrawDirectoryInfo()
         {
             EditorGUILayout.LabelField(AIBridgeEditorText.T("Directory Information", "目录信息"), EditorStyles.boldLabel);
+            DrawAIBridgeRootDirectorySettings();
+            EditorGUILayout.Space(8);
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.TextField(AIBridgeEditorText.T("Bridge Directory", "Bridge 目录"), AIBridge.BridgeDirectory);
@@ -315,6 +318,177 @@ namespace AIBridge.Editor
                 EditorUtility.RevealInFinder(ScreenshotHelper.ScreenshotsDir);
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawAIBridgeRootDirectorySettings()
+        {
+            var settings = AIBridgeProjectSettings.Instance;
+            var projectRoot = GetProjectRoot();
+
+            EditorGUILayout.LabelField(AIBridgeEditorText.T("AIBridge Root Directory", "AIBridge 根目录"), EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox(
+                AIBridgeEditorText.T(
+                    "Enable this only when the AIBridge package source is in a custom directory. If disabled, empty, or missing, AIBridge uses Packages/cn.lys.aibridge.",
+                    "仅当 AIBridge 包源码位于自定义目录时启用。未启用、未配置或目录不存在时，AIBridge 使用 Packages/cn.lys.aibridge。"),
+                MessageType.Info);
+
+            EditorGUI.BeginChangeCheck();
+            var useCustom = EditorGUILayout.Toggle(
+                AIBridgeEditorText.T("Use Custom AIBridge Root", "使用自定义 AIBridge 根目录"),
+                settings.UseCustomAIBridgeRootDirectory);
+            if (EditorGUI.EndChangeCheck())
+            {
+                SetUseCustomAIBridgeRootDirectory(useCustom);
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUI.BeginDisabledGroup(!settings.UseCustomAIBridgeRootDirectory);
+            EditorGUI.BeginChangeCheck();
+            var customRoot = EditorGUILayout.DelayedTextField(
+                AIBridgeEditorText.T("Custom Root", "自定义根目录"),
+                settings.CustomAIBridgeRootDirectory);
+            if (EditorGUI.EndChangeCheck())
+            {
+                SetCustomAIBridgeRootDirectory(customRoot);
+            }
+            EditorGUI.EndDisabledGroup();
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Browse", "浏览"), GUILayout.Width(64)))
+            {
+                BrowseCustomAIBridgeRootDirectory();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Open", "打开"), GUILayout.Width(52)))
+            {
+                OpenAIBridgeRootDirectory();
+            }
+
+            if (GUILayout.Button(AIBridgeEditorText.T("Reset", "重置"), GUILayout.Width(52)))
+            {
+                ResetCustomAIBridgeRootDirectory();
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            var activeRoot = AIBridgeRootDirectoryUtility.GetAIBridgeRootDirectory(projectRoot);
+            EditorGUILayout.TextField(AIBridgeEditorText.T("Active Root", "当前生效根目录"), AIBridgeRootDirectoryUtility.ToDisplayPath(projectRoot, activeRoot));
+
+            if (settings.UseCustomAIBridgeRootDirectory && string.IsNullOrEmpty(settings.CustomAIBridgeRootDirectory))
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "Custom root is enabled but no path is configured. The default package root is active.",
+                        "已启用自定义根目录，但未配置路径。当前使用默认包根目录。"),
+                    MessageType.Warning);
+            }
+            else if (settings.UseCustomAIBridgeRootDirectory
+                     && !string.IsNullOrEmpty(settings.CustomAIBridgeRootDirectory)
+                     && !Directory.Exists(AIBridgeRootDirectoryUtility.ResolveConfiguredDirectory(projectRoot, settings.CustomAIBridgeRootDirectory)))
+            {
+                EditorGUILayout.HelpBox(
+                    AIBridgeEditorText.T(
+                        "The configured custom root directory does not exist. The default package root is active.",
+                        "配置的自定义根目录不存在。当前使用默认包根目录。"),
+                    MessageType.Warning);
+            }
+        }
+
+        private void SetUseCustomAIBridgeRootDirectory(bool useCustom)
+        {
+            var settings = AIBridgeProjectSettings.Instance;
+            if (settings.UseCustomAIBridgeRootDirectory == useCustom)
+            {
+                return;
+            }
+
+            settings.UseCustomAIBridgeRootDirectory = useCustom;
+            settings.SaveSettings();
+            SkillInstaller.RefreshInstalledIntegrationsNoDialog();
+            Repaint();
+        }
+
+        private void SetCustomAIBridgeRootDirectory(string directory)
+        {
+            var normalized = AIBridgeRootDirectoryUtility.NormalizeConfiguredDirectory(directory);
+            if (!string.IsNullOrEmpty(normalized) && !AIBridgeRootDirectoryUtility.IsValidConfiguredDirectory(normalized))
+            {
+                EditorUtility.DisplayDialog(
+                    AIBridgeEditorText.T("Invalid Directory", "无效目录"),
+                    AIBridgeEditorText.T(
+                        "The AIBridge root directory must be an absolute path or a project-relative path without '..'.",
+                        "AIBridge 根目录必须是绝对路径，或不包含 '..' 的项目相对路径。"),
+                    AIBridgeEditorText.T("OK", "确定"));
+                return;
+            }
+
+            var settings = AIBridgeProjectSettings.Instance;
+            if (settings.CustomAIBridgeRootDirectory == normalized)
+            {
+                settings.SaveSettings();
+                SkillInstaller.RefreshInstalledIntegrationsNoDialog();
+                Repaint();
+                return;
+            }
+
+            settings.CustomAIBridgeRootDirectory = normalized;
+            settings.SaveSettings();
+            SkillInstaller.RefreshInstalledIntegrationsNoDialog();
+            Repaint();
+        }
+
+        private void BrowseCustomAIBridgeRootDirectory()
+        {
+            var projectRoot = GetProjectRoot();
+            var settings = AIBridgeProjectSettings.Instance;
+            var currentDirectory = AIBridgeRootDirectoryUtility.GetResolvedAIBridgeRootDirectory(projectRoot);
+            if (!string.IsNullOrEmpty(settings.CustomAIBridgeRootDirectory))
+            {
+                var configuredDirectory = AIBridgeRootDirectoryUtility.ResolveConfiguredDirectory(projectRoot, settings.CustomAIBridgeRootDirectory);
+                if (Directory.Exists(configuredDirectory))
+                {
+                    currentDirectory = configuredDirectory;
+                }
+            }
+
+            var selectedDirectory = EditorUtility.OpenFolderPanel(
+                AIBridgeEditorText.T("Select AIBridge Root Directory", "选择 AIBridge 根目录"),
+                currentDirectory,
+                string.Empty);
+            if (string.IsNullOrEmpty(selectedDirectory))
+            {
+                return;
+            }
+
+            AIBridgeProjectSettings.Instance.UseCustomAIBridgeRootDirectory = true;
+            SetCustomAIBridgeRootDirectory(AIBridgeRootDirectoryUtility.ToProjectRelativeOrFullPath(projectRoot, selectedDirectory));
+        }
+
+        private void OpenAIBridgeRootDirectory()
+        {
+            var projectRoot = GetProjectRoot();
+            var root = AIBridgeRootDirectoryUtility.GetResolvedAIBridgeRootDirectory(projectRoot);
+            if (Directory.Exists(root))
+            {
+                EditorUtility.RevealInFinder(root);
+                return;
+            }
+
+            EditorUtility.DisplayDialog(
+                AIBridgeEditorText.T("Directory Not Found", "目录不存在"),
+                AIBridgeEditorText.T(
+                    "The active AIBridge root directory does not exist.",
+                    "当前生效的 AIBridge 根目录不存在。"),
+                AIBridgeEditorText.T("OK", "确定"));
+        }
+
+        private void ResetCustomAIBridgeRootDirectory()
+        {
+            var settings = AIBridgeProjectSettings.Instance;
+            settings.UseCustomAIBridgeRootDirectory = AIBridgeProjectSettings.DefaultUseCustomAIBridgeRootDirectory;
+            settings.CustomAIBridgeRootDirectory = AIBridgeProjectSettings.DefaultCustomAIBridgeRootDirectory;
+            settings.SaveSettings();
+            SkillInstaller.RefreshInstalledIntegrationsNoDialog();
+            Repaint();
         }
 
         private void DrawActions()

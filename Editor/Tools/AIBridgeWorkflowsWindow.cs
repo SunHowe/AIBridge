@@ -813,8 +813,8 @@ namespace AIBridge.Editor
                 EditorUtility.DisplayDialog(
                     AIBridgeEditorText.T("Install Failed", "安装失败"),
                     AIBridgeEditorText.T(
-                        "Unity project AGENTS.md template was not found.\nExpected location: Packages/cn.lys.aibridge/" + AIBridgeSettingsWindow.GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage),
-                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：Packages/cn.lys.aibridge/" + AIBridgeSettingsWindow.GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage)),
+                        "Unity project AGENTS.md template was not found.\nExpected location: " + AIBridgeSettingsWindow.GetProjectAgentsTemplateDisplayPath(),
+                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：" + AIBridgeSettingsWindow.GetProjectAgentsTemplateDisplayPath()),
                     AIBridgeEditorText.T("OK", "确定"));
                 return;
             }

@@ -18,7 +18,6 @@ namespace AIBridge.Editor
     {
         private const string SKILL_FILE_NAME = "SKILL.md";
         private const string SKILL_INSTALL_MANIFEST_FILE_NAME = "aibridge-skill.json";
-        private const string PACKAGE_NAME = "cn.lys.aibridge";
         private const string CLI_CACHE_FOLDER = ".aibridge/cli";
         private const string CODE_INDEX_FOLDER = "CodeIndex";
         private const string CODE_INDEX_DAEMON_FILE_NAME = "AIBridgeCodeIndex";
@@ -697,26 +696,7 @@ namespace AIBridge.Editor
         {
             var projectRoot = GetProjectRoot();
             var subPath = string.IsNullOrEmpty(platformRID) ? "CLI" : $"CLI/{platformRID}";
-            
-            // Method 1: Direct package path (for local/embedded packages)
-            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, "Tools~", subPath);
-            if (Directory.Exists(directPath))
-            {
-                return directPath;
-            }
-            
-            // Method 2: Use PackageInfo for resolved path (for git/registry packages)
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath($"Packages/{PACKAGE_NAME}");
-            if (packageInfo != null)
-            {
-                var resolvedPath = Path.Combine(packageInfo.resolvedPath, "Tools~", subPath);
-                if (Directory.Exists(resolvedPath))
-                {
-                    return resolvedPath;
-                }
-            }
-            
-            return null;
+            return AIBridgeRootDirectoryUtility.ResolveRootRelativeDirectory(projectRoot, "Tools~/" + subPath);
         }
 
         /// <summary>
@@ -748,24 +728,7 @@ namespace AIBridge.Editor
         private static string GetSourceSkillRootPath()
         {
             var projectRoot = GetProjectRoot();
-
-            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, "Skill~");
-            if (Directory.Exists(directPath))
-            {
-                return directPath;
-            }
-
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath($"Packages/{PACKAGE_NAME}");
-            if (packageInfo != null)
-            {
-                var packagePath = Path.Combine(packageInfo.resolvedPath, "Skill~");
-                if (Directory.Exists(packagePath))
-                {
-                    return packagePath;
-                }
-            }
-
-            return null;
+            return AIBridgeRootDirectoryUtility.ResolveRootRelativeDirectory(projectRoot, "Skill~");
         }
 
         /// <summary>
@@ -782,7 +745,7 @@ namespace AIBridge.Editor
 
             var content = File.ReadAllText(sourcePath, System.Text.Encoding.UTF8);
             var cliExeName = GetCliExecutableName();
-            var hardcodedPath = $"Packages/{PACKAGE_NAME}/Tools~/CLI/AIBridgeCLI.exe";
+            var hardcodedPath = AIBridgeRootDirectoryUtility.DefaultAIBridgeRootDirectory + "/Tools~/CLI/AIBridgeCLI.exe";
             var fixedCliPath = "./" + CLI_CACHE_FOLDER + "/" + cliExeName;
             if (content.Contains(hardcodedPath))
             {
@@ -868,7 +831,8 @@ namespace AIBridge.Editor
             skillFilePath = null;
             if (string.IsNullOrEmpty(sourceSkillPath) || !File.Exists(sourceSkillPath))
             {
-                AIBridgeLogger.LogWarning($"[SkillInstaller] Source skill file not found. Expected at: Packages/{PACKAGE_NAME}/Skill~/{SKILL_FILE_NAME}");
+                AIBridgeLogger.LogWarning("[SkillInstaller] Source skill file not found. Expected at: "
+                    + AIBridgeRootDirectoryUtility.GetRootRelativeDisplayPath(projectRoot, "Skill~/" + SKILL_FILE_NAME));
                 return IntegrationAction.SkippedMissing;
             }
 
@@ -1089,7 +1053,7 @@ namespace AIBridge.Editor
 
             var content = File.ReadAllText(sourcePath, System.Text.Encoding.UTF8);
             var cliExeName = GetCliExecutableName();
-            var hardcodedPath = $"Packages/{PACKAGE_NAME}/Tools~/CLI/AIBridgeCLI.exe";
+            var hardcodedPath = AIBridgeRootDirectoryUtility.DefaultAIBridgeRootDirectory + "/Tools~/CLI/AIBridgeCLI.exe";
             var fixedCliPath = "./" + CLI_CACHE_FOLDER + "/" + cliExeName;
             if (content.Contains(hardcodedPath))
             {
@@ -1471,7 +1435,9 @@ namespace AIBridge.Editor
         {
             return target.SupportsSkillDirectory
                 ? "/" + target.GetResolvedSiblingSkillFileRelativePath(projectRoot, skillName)
-                : "/Packages/" + PACKAGE_NAME + "/Skill~/" + skillName + "/" + SKILL_FILE_NAME;
+                : FormatRootRulePath(AIBridgeRootDirectoryUtility.GetRootRelativeDisplayPath(
+                    projectRoot,
+                    "Skill~/" + skillName + "/" + SKILL_FILE_NAME));
         }
 
         private static string GetSkillRootDocumentPath(string projectRoot, AssistantIntegrationTarget target)
@@ -1485,7 +1451,20 @@ namespace AIBridge.Editor
                 }
             }
 
-            return "/Packages/" + PACKAGE_NAME + "/Skill~";
+            return FormatRootRulePath(AIBridgeRootDirectoryUtility.GetRootRelativeDisplayPath(projectRoot, "Skill~"));
+        }
+
+        private static string FormatRootRulePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            var normalized = path.Replace('\\', '/').TrimEnd('/');
+            return normalized.StartsWith("/", StringComparison.Ordinal) || normalized.Contains(":")
+                ? normalized
+                : "/" + normalized.TrimStart('/');
         }
 
         private static List<AssistantIntegrationTarget> GetSelectedTargets(string projectRoot)

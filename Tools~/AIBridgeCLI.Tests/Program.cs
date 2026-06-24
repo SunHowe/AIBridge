@@ -17,6 +17,9 @@ namespace AIBridgeCLI.Tests
                 WorkflowReport_IncludesRuntimePerformanceEvidence();
                 WorkflowReport_IncludesFailedRuntimePerformanceEvidence();
                 ArtifactRequiredGate_MatchesSemanticKind();
+                WorkflowPathHelper_UsesCustomAIBridgeRootDirectoryMirror();
+                WorkflowPathHelper_UsesExistingCustomAIBridgeRootDirectoryWithoutPackageMarkers();
+                WorkflowPathHelper_FallsBackToDefaultWhenCustomAIBridgeRootDirectoryIsMissing();
                 DialogButtonInfo_ExposesStrictLogicalChoices();
                 DialogButtonInfo_DoesNotExposeChoicesForDisabledButtons();
                 SelectButton_FindsUniqueMatchAcrossDialogs();
@@ -172,6 +175,140 @@ namespace AIBridgeCLI.Tests
                 if (File.Exists(artifactPath))
                 {
                     File.Delete(artifactPath);
+                }
+            }
+        }
+
+        private static void WorkflowPathHelper_UsesCustomAIBridgeRootDirectoryMirror()
+        {
+            var previousRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            var previousPackageRoot = Environment.GetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT");
+            var previousDirectory = Directory.GetCurrentDirectory();
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeCLI.Tests." + Guid.NewGuid().ToString("N"));
+            var customRoot = Path.Combine(projectRoot, "ExternalAIBridge");
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(projectRoot, "Assets"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, "ProjectSettings"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, ".aibridge"));
+                Directory.CreateDirectory(Path.Combine(customRoot, "Templates~"));
+                File.WriteAllText(Path.Combine(projectRoot, "ProjectSettings", "ProjectSettings.asset"), "%YAML 1.1");
+                File.WriteAllText(Path.Combine(customRoot, "package.json"), "{ \"name\": \"cn.lys.aibridge\" }");
+                File.WriteAllText(
+                    Path.Combine(projectRoot, ".aibridge", "aibridge-root.json"),
+                    "{\n"
+                    + "  \"useCustomAIBridgeRootDirectory\": true,\n"
+                    + "  \"customAIBridgeRootDirectory\": \"ExternalAIBridge\"\n"
+                    + "}\n");
+
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", projectRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", null);
+                Directory.SetCurrentDirectory(projectRoot);
+                ResetPathHelperCache();
+
+                AssertEqual(
+                    Path.GetFullPath(customRoot),
+                    WorkflowPathHelper.GetPackageRoot(),
+                    "WorkflowPathHelper should use the custom AIBridge root directory mirror.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", previousRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", previousPackageRoot);
+                Directory.SetCurrentDirectory(previousDirectory);
+                ResetPathHelperCache();
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        private static void WorkflowPathHelper_UsesExistingCustomAIBridgeRootDirectoryWithoutPackageMarkers()
+        {
+            var previousRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            var previousPackageRoot = Environment.GetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT");
+            var previousDirectory = Directory.GetCurrentDirectory();
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeCLI.Tests." + Guid.NewGuid().ToString("N"));
+            var customRoot = Path.Combine(projectRoot, "ExistingCustomRoot");
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(projectRoot, "Assets"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, "ProjectSettings"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, ".aibridge"));
+                Directory.CreateDirectory(customRoot);
+                File.WriteAllText(Path.Combine(projectRoot, "ProjectSettings", "ProjectSettings.asset"), "%YAML 1.1");
+                File.WriteAllText(
+                    Path.Combine(projectRoot, ".aibridge", "aibridge-root.json"),
+                    "{\n"
+                    + "  \"useCustomAIBridgeRootDirectory\": true,\n"
+                    + "  \"customAIBridgeRootDirectory\": \"ExistingCustomRoot\"\n"
+                    + "}\n");
+
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", projectRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", null);
+                Directory.SetCurrentDirectory(projectRoot);
+                ResetPathHelperCache();
+
+                AssertEqual(
+                    Path.GetFullPath(customRoot),
+                    WorkflowPathHelper.GetPackageRoot(),
+                    "WorkflowPathHelper should honor an existing custom AIBridge root even without package markers.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", previousRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", previousPackageRoot);
+                Directory.SetCurrentDirectory(previousDirectory);
+                ResetPathHelperCache();
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        private static void WorkflowPathHelper_FallsBackToDefaultWhenCustomAIBridgeRootDirectoryIsMissing()
+        {
+            var previousRoot = Environment.GetEnvironmentVariable("UNITY_PROJECT_ROOT");
+            var previousPackageRoot = Environment.GetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT");
+            var previousDirectory = Directory.GetCurrentDirectory();
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeCLI.Tests." + Guid.NewGuid().ToString("N"));
+            var defaultRoot = Path.Combine(projectRoot, "Packages", "cn.lys.aibridge");
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(projectRoot, "Assets"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, "ProjectSettings"));
+                Directory.CreateDirectory(Path.Combine(projectRoot, ".aibridge"));
+                Directory.CreateDirectory(Path.Combine(defaultRoot, "Templates~"));
+                File.WriteAllText(Path.Combine(projectRoot, "ProjectSettings", "ProjectSettings.asset"), "%YAML 1.1");
+                File.WriteAllText(Path.Combine(defaultRoot, "package.json"), "{ \"name\": \"cn.lys.aibridge\" }");
+                File.WriteAllText(
+                    Path.Combine(projectRoot, ".aibridge", "aibridge-root.json"),
+                    "{\n"
+                    + "  \"useCustomAIBridgeRootDirectory\": true,\n"
+                    + "  \"customAIBridgeRootDirectory\": \"MissingCustomRoot\"\n"
+                    + "}\n");
+
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", projectRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", null);
+                Directory.SetCurrentDirectory(projectRoot);
+                ResetPathHelperCache();
+
+                AssertEqual(
+                    Path.GetFullPath(defaultRoot),
+                    WorkflowPathHelper.GetPackageRoot(),
+                    "WorkflowPathHelper should fall back to the default AIBridge root when the configured custom root is missing.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("UNITY_PROJECT_ROOT", previousRoot);
+                Environment.SetEnvironmentVariable("AIBRIDGE_PACKAGE_ROOT", previousPackageRoot);
+                Directory.SetCurrentDirectory(previousDirectory);
+                ResetPathHelperCache();
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
                 }
             }
         }

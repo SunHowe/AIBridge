@@ -130,6 +130,8 @@ https://gitee.com/lijoujou99_admin/AIBridge.git
 
 安装后的 AIBridge Skills 默认写入各已选工具自己的默认 skills 目录，例如 Codex 使用 `.codex/skills/`。也可以在 `Workflows > Skills` 页签设置自定义目录，但自定义目录可能无法被 AI 工具自动发现。不同 AI 工具只写入各自的最小 RootRule；只有自定义目录需要时才写入插件适配层并引用该 Skill 根目录。RootRule 包含固定 CLI 路径、常用命令、host 工具 `exec` 路由、Skill 根目录和 `aibridge-development-workflow` 入口；多分支路由和针对性检查清单由 workflow Skill 维护。高级 Workflow 编排规则会作为 AIBridge Skill 一起安装，只在多 Agent workflow、对抗验证、recipe、Runtime 调试诊断或 Runtime 多目标 sweep 任务中加载。命令说明会生成到各 Skill 的 `references/` 目录。
 
+如果 AIBridge 包源码不在 `Packages/cn.lys.aibridge`，可在 `AIBridge/Settings > Directories` 中启用 `Use Custom AIBridge Root / 使用自定义 AIBridge 根目录` 并选择包源码目录。未启用、路径为空或目录不存在时，AIBridge 回退到 `Packages/cn.lys.aibridge`。该设置也会写入 `.aibridge/aibridge-root.json`，供 CLI workflow 命令解析同一个根目录。
+
 如果项目有需要，也可以在 `Workflows > 推荐库` 页签刷新默认的 `obra/superpowers` 推荐仓库，并将其中的第三方 Skill 安装到已选工具的 skills 目录。
 
 `Workflows > Workflow 选项` 会保存项目级工作流偏好。应用这些选项时，会刷新已安装的 `aibridge-development-workflow` Skill 下的生成文件，包括 `references/project-workflow-preferences.md` 和根据分支开关生成的分支选择规则。
@@ -138,7 +140,7 @@ https://gitee.com/lijoujou99_admin/AIBridge.git
 
 AIBridge 会安装这些面向用户的 Unity 菜单入口：
 
-- `AIBridge/Settings`：Basic、GIF、Logs、Directories、Scripts、Runtime、Code Index、Cache、Actions。
+- `AIBridge/Settings`：Basic、GIF、Logs、Directories、Scripts、Runtime、Code Index、Cache、Actions；Directories 页签包含可选的自定义 AIBridge 包根目录。
 - `AIBridge/Workflows`：安装集成、选择 AI 工具和配置 workflow 选项。
 - `AIBridge/Players`：查看 Runtime target、发现缓存、状态和缓存清理入口。
 - `AIBridge/Workflow Graph`：面向 routing、recipe、run、gate 和 handoff 的高级 workflow 图视图。

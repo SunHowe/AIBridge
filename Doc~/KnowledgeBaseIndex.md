@@ -3,8 +3,8 @@
 ## 状态
 
 - 状态：当前索引
-- 更新时间：2026-06-23
-- 维护范围：`Packages/cn.lys.aibridge`
+- 更新时间：2026-06-24
+- 维护范围：`AIBridgeRootDirectory`（默认 `Packages/cn.lys.aibridge`，可在 Settings > Directories 中自定义）
 
 ## 目的
 
@@ -27,14 +27,14 @@
 
 | 层级 | 已确认入口 | 说明 |
 |---|---|---|
-| Unity Editor | `AIBridge/Settings`、`AIBridge/Workflows`、`AIBridge/Players`、`AIBridge/Workflow Graph`、`AIBridge/Screenshot Game View _F12`、`AIBridge/Record GIF _F11` | 覆盖基础设置、工作流配置、Runtime 目标查看、工作流图和截图快捷入口 |
+| Unity Editor | `AIBridge/Settings`、`AIBridge/Workflows`、`AIBridge/Players`、`AIBridge/Workflow Graph`、`AIBridge/Screenshot Game View _F12`、`AIBridge/Record GIF _F11` | 覆盖基础设置、自定义 AIBridge 包根目录、工作流配置、Runtime 目标查看、工作流图和截图快捷入口 |
 | CLI | `focus`、`dialog`、`asset`、`batch`、`code`、`code_index`、`compile`、`editor`、`exec`、`gameobject`、`gameview`、`get_logs`、`harness`、`input`、`inspector`、`menu_item`、`multi`、`prefab`、`profiler`、`runtime`、`scene`、`screenshot`、`selection`、`test`、`text_index`、`transform`、`workflow`、`compile dotnet` | 当前 AIBridge CLI 的真实命令面 |
 | Runtime Bridge | `Runtime/AIBridgeRuntime.cs`、`Runtime/Transports/*`、`runtime status/logs/screenshot/perf/handlers/call` | 连接已编译 Player 或 Play Mode 目标，HTTP 为默认控制面，File transport 为 HTTP 未运行时的兼容回退，采集证据和调用白名单 handler |
 | Workflow | `Tools~/AIBridgeCLI/Workflow/*`、`Templates~/Workflows/*.aibridge-workflow.json`、`workflow list/validate/plan/init/begin/status/report/finish/import/export/clean` | 负责 recipes、run manifest、artifact、gate、report 和外部结果导入 |
 | Skills | `Skill~/aibridge-development-workflow`、`Skill~/aibridge-workflow-orchestration`、`Skill~/aibridge-code-index`、`Skill~/aibridge-prefab-patch`、`Skill~/aibridge-batch-script`、`Skill~/unity-yaml-editing` | 分别覆盖 workflow 短入口/分支路由、编排、语义检索、Prefab patch、批处理和 YAML 兜底 |
 | 文档 | `Doc~/README.md`、`Doc~/WorkflowsPanel.md`、`Doc~/WorkflowGraphPanel.md`、`Doc~/workflow-guide/README.md`、`Doc~/workflow-guide/ContextCompression.md`、`Doc~/workflow-guide/AIBridgeLoopsAnalysis.md` | 功能目录、面板定位、workflow 说明、上下文压缩策略和 FSM 分析 |
 | 模板 | `Templates~/Rules/AIBridge.RootRule.md`、`Templates~/ProjectRules/AGENTS*.md`、`Templates~/Workflows/*.json` | RootRule、项目规则模板和内置 workflow recipes |
-| 生成与缓存 | `.aibridge/harness/capabilities.json`、`.aibridge/workflows/active-run.json`、`.aibridge/workflows/runs/`、`.aibridge/text-index/`、`.aibridge/code-index/snapshot/`、`.aibridge/code/`、`.aibridge/plan/` | 当前项目的能力快照、运行产物、文本索引、代码索引、临时代码和方案底稿 |
+| 生成与缓存 | `.aibridge/aibridge-root.json`、`.aibridge/harness/capabilities.json`、`.aibridge/workflows/active-run.json`、`.aibridge/workflows/runs/`、`.aibridge/text-index/`、`.aibridge/code-index/snapshot/`、`.aibridge/code/`、`.aibridge/plan/` | 当前项目的 AIBridge 根目录 mirror、能力快照、运行产物、文本索引、代码索引、临时代码和方案底稿 |
 
 ## CLI 功能目录
 
@@ -84,7 +84,7 @@
 - Basic
 - GIF
 - Logs
-- Directories
+- Directories（包含可选的自定义 AIBridge 包根目录；未启用、未配置或目录不存在时回退到 `Packages/cn.lys.aibridge`）
 - Scripts
 - Runtime
 - Code Index
@@ -145,6 +145,7 @@
 - Runtime HTTP command 成功、timeout、Runtime not-ready 和 CLI cleanup 都会关闭 pending id，迟到的 HTTP 异步结果不会回落到 file result 落盘。
 - Runtime heartbeat 默认间隔为 2 秒；File heartbeat stale 判定保留 15 秒窗口，不会因默认心跳降频触发误判。
 - Runtime UI snapshot/find 默认不做逐按钮 raycast；需要遮挡诊断时显式传入 `includeRaycastDetails=true`。
+- `AIBridgeRootDirectory` 是包内资源、CLI 缓存、Skill 安装、RootRule 模板、AGENTS 模板、内置 workflow recipe 和 harness 快照的统一根目录来源；Settings > Directories 的自定义路径存在时优先使用，否则回退到默认 `Packages/cn.lys.aibridge`，并通过 `.aibridge/aibridge-root.json` 给 CLI workflow 读取。
 
 ## 当前已知漂移
 

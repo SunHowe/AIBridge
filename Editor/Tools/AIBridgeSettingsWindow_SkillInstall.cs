@@ -398,50 +398,35 @@ namespace AIBridge.Editor
         }
 
         /// <summary>
-        /// 获取 Unity 项目 AGENTS.md 模板路径（兼容 Packages 和 PackageCache）
+        /// 获取 Unity 项目 AGENTS.md 模板路径（兼容自定义 AIBridge 根目录、Packages 和 PackageCache）
         /// </summary>
         internal static string GetSourceAgentsPath()
         {
-            const string PACKAGE_NAME = "cn.lys.aibridge";
             const string AGENTS_FILE_NAME = "AGENTS.md";
             var projectTemplateRelativePath = GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage);
             var projectRoot = Path.GetDirectoryName(Application.dataPath);
 
-            // 方法 1: 直接从 Packages 目录查找（本地/嵌入式包）
-            var directPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, projectTemplateRelativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(directPath))
+            var templatePath = AIBridgeRootDirectoryUtility.ResolveRootRelativeFilePath(projectRoot, projectTemplateRelativePath);
+            if (!string.IsNullOrEmpty(templatePath))
             {
-                return directPath;
-            }
-
-            // 方法 2: 使用 PackageInfo 解析路径（git/registry 包）
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath($"Packages/{PACKAGE_NAME}");
-            if (packageInfo != null)
-            {
-                var packagePath = Path.Combine(packageInfo.resolvedPath, projectTemplateRelativePath.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(packagePath))
-                {
-                    return packagePath;
-                }
+                return templatePath;
             }
 
             // 兼容旧版本包结构：历史上项目模板曾放在包根 AGENTS.md。
-            var legacyDirectPath = Path.Combine(projectRoot, "Packages", PACKAGE_NAME, AGENTS_FILE_NAME);
-            if (IsLegacyProjectAgentsTemplate(legacyDirectPath))
+            var legacyPath = AIBridgeRootDirectoryUtility.ResolveRootRelativeFilePath(projectRoot, AGENTS_FILE_NAME);
+            if (IsLegacyProjectAgentsTemplate(legacyPath))
             {
-                return legacyDirectPath;
-            }
-
-            if (packageInfo != null)
-            {
-                var legacyPackagePath = Path.Combine(packageInfo.resolvedPath, AGENTS_FILE_NAME);
-                if (IsLegacyProjectAgentsTemplate(legacyPackagePath))
-                {
-                    return legacyPackagePath;
-                }
+                return legacyPath;
             }
 
             return null;
+        }
+
+        internal static string GetProjectAgentsTemplateDisplayPath()
+        {
+            return AIBridgeRootDirectoryUtility.GetRootRelativeDisplayPath(
+                Path.GetDirectoryName(Application.dataPath),
+                GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage));
         }
 
         internal static string GetProjectAgentsTemplateRelativePath(AIBridgeEditorLanguage language)
@@ -497,8 +482,8 @@ namespace AIBridge.Editor
                 EditorUtility.DisplayDialog(
                     AIBridgeEditorText.T("Install Failed", "安装失败"),
                     AIBridgeEditorText.T(
-                        "Unity project AGENTS.md template was not found.\nExpected location: Packages/cn.lys.aibridge/" + GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage),
-                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：Packages/cn.lys.aibridge/" + GetProjectAgentsTemplateRelativePath(AIBridgeProjectSettings.Instance.EditorLanguage)),
+                        "Unity project AGENTS.md template was not found.\nExpected location: " + GetProjectAgentsTemplateDisplayPath(),
+                        "未找到 Unity 项目 AGENTS.md 模板。\n预期位置：" + GetProjectAgentsTemplateDisplayPath()),
                     AIBridgeEditorText.T("OK", "确定"));
                 return;
             }

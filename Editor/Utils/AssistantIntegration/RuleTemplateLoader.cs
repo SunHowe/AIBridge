@@ -22,8 +22,6 @@ namespace AIBridge.Editor
 
     internal static class RuleTemplateLoader
     {
-        private const string PackageName = "cn.lys.aibridge";
-
         public static RuleTemplate Load(string projectRoot, string relativePath)
         {
             var templatePath = ResolvePackageRelativePath(projectRoot, relativePath);
@@ -103,20 +101,10 @@ namespace AIBridge.Editor
 
         private static string ResolvePackageRelativePath(string projectRoot, string relativePath)
         {
-            var directPath = Path.Combine(projectRoot, "Packages", PackageName, relativePath.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(directPath))
+            var resolvedPath = AIBridgeRootDirectoryUtility.ResolveRootRelativeFilePath(projectRoot, relativePath);
+            if (!string.IsNullOrEmpty(resolvedPath))
             {
-                return directPath;
-            }
-
-            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/" + PackageName);
-            if (packageInfo != null)
-            {
-                var resolvedPath = Path.Combine(packageInfo.resolvedPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(resolvedPath))
-                {
-                    return resolvedPath;
-                }
+                return resolvedPath;
             }
 
             Debug.LogWarning("[AIBridge] Unable to resolve template path: " + relativePath);

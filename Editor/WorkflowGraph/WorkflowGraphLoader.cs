@@ -8,7 +8,6 @@ namespace AIBridge.Editor
 {
     internal sealed class WorkflowGraphLoader
     {
-        private const string BuiltInRecipeDirectory = "Packages/cn.lys.aibridge/Templates~/Workflows";
         private const string ProjectRecipeDirectory = ".aibridge/workflows/recipes";
         private const string WorkflowRootDirectory = ".aibridge/workflows";
         private const string ActiveRunFileName = "active-run.json";
@@ -381,7 +380,7 @@ namespace AIBridge.Editor
         public List<WorkflowRecipeSummary> ListRecipes()
         {
             var recipes = new List<WorkflowRecipeSummary>();
-            AddRecipeSummaries(recipes, Path.Combine(_projectRoot, BuiltInRecipeDirectory), "builtin");
+            AddRecipeSummaries(recipes, AIBridgeRootDirectoryUtility.GetRootRelativePath(_projectRoot, "Templates~/Workflows"), "builtin");
             AddRecipeSummaries(recipes, Path.Combine(_projectRoot, ProjectRecipeDirectory), "project");
             return recipes.OrderBy(item => item.Source).ThenBy(item => item.Name).ToList();
         }
