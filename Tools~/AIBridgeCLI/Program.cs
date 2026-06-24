@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using AIBridge.Runtime.Internal;
 using AIBridgeCLI.Commands;
 using AIBridgeCLI.Core;
 using Newtonsoft.Json;
@@ -46,6 +48,11 @@ namespace AIBridgeCLI
             var stdin = parsed.GetBool("stdin");
 
             var outputMode = quiet ? OutputMode.Quiet : (pretty ? OutputMode.Pretty : OutputMode.Raw);
+
+            if (!IsHelpOnlyRequest(parsed, help))
+            {
+                CleanupCacheIfDue();
+            }
 
             // Handle multi command (special case - executes multiple commands efficiently)
             if (parsed.CommandType != null && parsed.CommandType.Equals("multi", StringComparison.OrdinalIgnoreCase))
@@ -109,6 +116,12 @@ namespace AIBridgeCLI
             if (parsed.CommandType.Equals("code_index", StringComparison.OrdinalIgnoreCase))
             {
                 return CodeIndexCommand.Execute(parsed.Action, parsed.Options, timeout, noWait, outputMode);
+            }
+
+            // Handle text_index command (CLI-only local indexed text search)
+            if (parsed.CommandType.Equals("text_index", StringComparison.OrdinalIgnoreCase))
+            {
+                return TextIndexCommand.Execute(parsed.Action, parsed.Options, parsed.ExtraArgs, outputMode);
             }
 
             // Handle workflow command (CLI-only recipe schema, run artifacts, gates, reports)
@@ -255,6 +268,42 @@ namespace AIBridgeCLI
             OutputFormatter.PrintResult(result, outputMode, includeIdInRaw: false);
 
             return result.success ? 0 : 1;
+        }
+
+        static bool IsHelpOnlyRequest(ParsedArgs parsed, bool help)
+        {
+            if (help || parsed.CommandType == null)
+            {
+                return true;
+            }
+
+            return string.Equals(parsed.Action, "help", StringComparison.OrdinalIgnoreCase)
+                || (parsed.Options.ContainsKey("help") && !string.IsNullOrEmpty(parsed.Action));
+        }
+
+        static void CleanupCacheIfDue()
+        {
+            try
+            {
+                var projectRoot = PathHelper.TryGetUnityProjectRoot();
+                if (string.IsNullOrEmpty(projectRoot))
+                {
+                    return;
+                }
+
+                var bridgeDirectory = Path.Combine(projectRoot, ".aibridge");
+                if (!Directory.Exists(bridgeDirectory))
+                {
+                    return;
+                }
+
+                var settings = AIBridgeCacheCleanup.LoadSettings(bridgeDirectory);
+                AIBridgeCacheCleanup.CleanupIfDue(bridgeDirectory, settings);
+            }
+            catch
+            {
+                // CLI cache cleanup is opportunistic and must not change command behavior.
+            }
         }
 
         static CommandSender CreateCommandSender(int timeout, ParsedArgs parsed, CommandRequest request = null)

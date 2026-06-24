@@ -1,4 +1,5 @@
 using System.IO;
+using AIBridge.Runtime.Internal;
 using AIBridge.Runtime;
 using UnityEditor;
 using UnityEngine;
@@ -72,6 +73,7 @@ namespace AIBridge.Editor
             _watcher = new CommandWatcher(BridgeDirectory);
             LegacyCacheDirectoryCleaner.CleanupIfNeeded(GetProjectRoot(), BridgeDirectory);
             CodeCacheCleaner.CleanupIfNeeded(BridgeDirectory);
+            CleanupCacheIfDue();
             EditorInstanceTracker.Initialize(BridgeDirectory);
 
             // Subscribe to editor update
@@ -177,12 +179,44 @@ namespace AIBridge.Editor
             EditorInstanceTracker.Cleanup();
         }
 
+        private static void CleanupCacheIfDue()
+        {
+            try
+            {
+                var settings = AIBridgeProjectSettings.Instance;
+                settings.WriteCacheCleanupSettingsMirror();
+
+                var result = AIBridgeCacheCleanup.CleanupIfDue(BridgeDirectory, settings.ToCacheCleanupSettings());
+                if (result.Skipped)
+                {
+                    return;
+                }
+
+                if (result.DeletedFiles > 0 || result.DeletedDirectories > 0 || result.ErrorCount > 0)
+                {
+                    AIBridgeLogger.LogInfo(
+                        "[AIBridge] Cache cleanup finished. Deleted files: "
+                        + result.DeletedFiles
+                        + ", directories: "
+                        + result.DeletedDirectories
+                        + ", freed bytes: "
+                        + result.FreedBytes
+                        + ", errors: "
+                        + result.ErrorCount);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[AIBridge] Cache cleanup skipped: " + ex.Message);
+            }
+        }
+
         /// <summary>
         /// Manually trigger a scan and process cycle
         /// </summary>
         public static void ProcessCommandsNow()
         {
-            _watcher.ScanForCommands();
+            _watcher.ScanForCommands(force: true);
             while (_watcher.ProcessOneCommand())
             {
                 // Process all pending commands

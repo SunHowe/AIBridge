@@ -88,8 +88,7 @@ namespace AIBridge.Editor
 
         static SkillInstaller()
         {
-            // Delay execution to ensure Unity is fully initialized
-            EditorApplication.delayCall += InstallSkillIfNeeded;
+            ScheduleAutomaticInstall();
         }
 
         /// <summary>
@@ -104,13 +103,19 @@ namespace AIBridge.Editor
                     return;
                 }
 
-                if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+                if (EditorApplication.isPlayingOrWillChangePlaymode)
                 {
-                    EditorApplication.delayCall += InstallSkillIfNeeded;
+                    return;
+                }
+
+                if (!ShouldRunAutomaticInstall(EditorApplication.isCompiling, EditorApplication.isUpdating, false))
+                {
+                    ScheduleAutomaticInstall();
                     return;
                 }
 
                 var projectRoot = GetProjectRoot();
+
                 CopyCliToCacheIfNeeded(projectRoot);
 
                 if (!EnsureEditorLanguageInitialized())
@@ -126,10 +131,10 @@ namespace AIBridge.Editor
                 {
                     return;
                 }
-                
+
                 // 清理未勾选目标的注入内容
                 CleanupUnselectedTargets(projectRoot, targets);
-                
+
                 if (targets.Count == 0)
                 {
                     return;
@@ -143,6 +148,24 @@ namespace AIBridge.Editor
             {
                 AIBridgeLogger.LogError($"[SkillInstaller] Failed to install skill documentation: {ex.Message}");
             }
+        }
+
+        private static void ScheduleAutomaticInstall()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                return;
+            }
+
+            // Delay execution to ensure Unity is fully initialized.
+            EditorApplication.delayCall += InstallSkillIfNeeded;
+        }
+
+        internal static bool ShouldRunAutomaticInstall(bool isCompiling, bool isUpdating, bool isPlayingOrWillChangePlaymode)
+        {
+            return !isCompiling
+                   && !isUpdating
+                   && !isPlayingOrWillChangePlaymode;
         }
 
         internal static void RefreshInstalledIntegrationsNoDialog()
@@ -767,7 +790,7 @@ namespace AIBridge.Editor
             }
 
             content = ApplyProjectVersionTokens(content);
-            File.WriteAllText(targetFile, content, Utf8NoBom);
+            WriteTextIfChanged(targetFile, content, Utf8NoBom);
         }
 
         private static List<AssistantIntegrationResult> InstallAssistantIntegrations(string projectRoot)
@@ -861,8 +884,13 @@ namespace AIBridge.Editor
 
             var existed = File.Exists(skillFilePath);
 
-            GenerateAndWriteSkillFile(sourceSkillPath, targetDir, skillFilePath);
-            return existed ? IntegrationAction.UpdatedBlock : IntegrationAction.CreatedFile;
+            var changed = GenerateAndWriteSkillFileIfChanged(sourceSkillPath, targetDir, skillFilePath);
+            if (!existed)
+            {
+                return IntegrationAction.CreatedFile;
+            }
+
+            return changed ? IntegrationAction.UpdatedBlock : IntegrationAction.AlreadyUpToDate;
         }
 
         private static List<string> InstallAdditionalSkillDirectoriesForTarget(string projectRoot, AssistantIntegrationTarget target)
@@ -909,13 +937,11 @@ namespace AIBridge.Editor
                     continue;
                 }
 
-                // 子目录 Skill 独立安装，先清空目标目录可避免删除源文件后残留旧资源。
-                if (Directory.Exists(targetSkillDir))
-                {
-                    Directory.Delete(targetSkillDir, true);
-                }
-
-                CopyDirectory(sourceSkillDir, targetSkillDir);
+                // 子目录 Skill 独立安装，并在无内容变化时保持目标目录时间戳稳定。
+                var generatedFiles = string.Equals(skillName, WorkflowPreferenceRenderer.DevelopmentWorkflowSkillName, StringComparison.OrdinalIgnoreCase)
+                    ? GetWorkflowGeneratedRelativePaths()
+                    : null;
+                SyncDirectory(sourceSkillDir, targetSkillDir, true, generatedFiles);
                 installedSkillFiles.Add(targetSkillFile);
             }
 
@@ -959,12 +985,20 @@ namespace AIBridge.Editor
             SyncWorkflowBranchDocuments(sourceSkillRoot, workflowSkillDirectory);
             var preferencesPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.PreferencesRelativePath.Replace('/', Path.DirectorySeparatorChar));
             var branchSelectionPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.BranchSelectionRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var graphManifestPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.GraphManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var implementationBranchManifestPath = Path.Combine(workflowSkillDirectory, WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
             EnsureParentDirectory(preferencesPath);
             EnsureParentDirectory(branchSelectionPath);
-            File.WriteAllText(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
-            File.WriteAllText(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
+            EnsureParentDirectory(graphManifestPath);
+            EnsureParentDirectory(implementationBranchManifestPath);
+            WriteTextIfChanged(preferencesPath, WorkflowPreferenceRenderer.RenderPreferences(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(branchSelectionPath, WorkflowPreferenceRenderer.RenderBranchSelection(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(graphManifestPath, WorkflowPreferenceRenderer.RenderGraphManifest(projectRoot, target), Utf8NoBom);
+            WriteTextIfChanged(implementationBranchManifestPath, WorkflowPreferenceRenderer.RenderImplementationBranchManifest(), Utf8NoBom);
             generatedFiles.Add(preferencesPath);
             generatedFiles.Add(branchSelectionPath);
+            generatedFiles.Add(graphManifestPath);
+            generatedFiles.Add(implementationBranchManifestPath);
             return generatedFiles;
         }
 
@@ -996,12 +1030,7 @@ namespace AIBridge.Editor
             }
 
             var targetBranchesDirectory = Path.Combine(workflowSkillDirectory, "references", "branches");
-            if (Directory.Exists(targetBranchesDirectory))
-            {
-                Directory.Delete(targetBranchesDirectory, true);
-            }
-
-            CopyDirectory(sourceBranchesDirectory, targetBranchesDirectory);
+            SyncDirectory(sourceBranchesDirectory, targetBranchesDirectory, true, null);
         }
 
         private static void GenerateSkillReferenceFilesForTarget(string projectRoot, AssistantIntegrationTarget target)
@@ -1051,11 +1080,53 @@ namespace AIBridge.Editor
                 : Path.Combine(projectRoot, skillRootDirectory.Replace('/', Path.DirectorySeparatorChar));
         }
 
-        private static void CopyDirectory(string sourceDir, string targetDir)
+        private static bool GenerateAndWriteSkillFileIfChanged(string sourcePath, string targetDir, string targetFile)
+        {
+            if (!Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            var content = File.ReadAllText(sourcePath, System.Text.Encoding.UTF8);
+            var cliExeName = GetCliExecutableName();
+            var hardcodedPath = $"Packages/{PACKAGE_NAME}/Tools~/CLI/AIBridgeCLI.exe";
+            var fixedCliPath = "./" + CLI_CACHE_FOLDER + "/" + cliExeName;
+            if (content.Contains(hardcodedPath))
+            {
+                content = content.Replace(hardcodedPath, fixedCliPath);
+            }
+
+            content = ApplyProjectVersionTokens(content);
+            return WriteTextIfChanged(targetFile, content, Utf8NoBom);
+        }
+
+        private static HashSet<string> GetWorkflowGeneratedRelativePaths()
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                NormalizeRelativePath(WorkflowPreferenceRenderer.PreferencesRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.BranchSelectionRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.GraphManifestRelativePath),
+                NormalizeRelativePath(WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath)
+            };
+        }
+
+        private static void SyncDirectory(string sourceDir, string targetDir, bool removeExtraEntries, HashSet<string> skippedRelativePaths)
+        {
+            SyncDirectory(sourceDir, targetDir, sourceDir, removeExtraEntries, skippedRelativePaths);
+        }
+
+        private static void SyncDirectory(
+            string sourceRoot,
+            string targetDir,
+            string currentSourceDir,
+            bool removeExtraEntries,
+            HashSet<string> skippedRelativePaths)
         {
             Directory.CreateDirectory(targetDir);
+            var expectedEntries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var filePath in Directory.GetFiles(sourceDir))
+            foreach (var filePath in Directory.GetFiles(currentSourceDir))
             {
                 if (filePath.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1067,14 +1138,170 @@ namespace AIBridge.Editor
                     continue;
                 }
 
-                var targetFile = Path.Combine(targetDir, Path.GetFileName(filePath));
-                File.Copy(filePath, targetFile, true);
+                var fileName = Path.GetFileName(filePath);
+                if (ShouldSkipSyncFile(sourceRoot, filePath, skippedRelativePaths))
+                {
+                    expectedEntries.Add(fileName);
+                    continue;
+                }
+
+                expectedEntries.Add(fileName);
+                var targetFile = Path.Combine(targetDir, fileName);
+                CopyFileIfChanged(filePath, targetFile);
             }
 
-            foreach (var childDir in Directory.GetDirectories(sourceDir))
+            foreach (var childDir in Directory.GetDirectories(currentSourceDir))
             {
-                var targetChildDir = Path.Combine(targetDir, Path.GetFileName(childDir));
-                CopyDirectory(childDir, targetChildDir);
+                var dirName = Path.GetFileName(childDir);
+                expectedEntries.Add(dirName);
+                SyncDirectory(sourceRoot, Path.Combine(targetDir, dirName), childDir, removeExtraEntries, skippedRelativePaths);
+            }
+
+            if (!removeExtraEntries)
+            {
+                return;
+            }
+
+            foreach (var targetEntry in Directory.GetFileSystemEntries(targetDir))
+            {
+                if (!expectedEntries.Contains(Path.GetFileName(targetEntry)) && !ShouldKeepExtraSyncEntry(targetEntry))
+                {
+                    DeleteFileSystemEntry(targetEntry);
+                }
+            }
+        }
+
+        private static bool ShouldKeepExtraSyncEntry(string targetEntry)
+        {
+            if (Directory.Exists(targetEntry))
+            {
+                return DirectoryContainsGeneratedFiles(targetEntry);
+            }
+
+            return IsGeneratedFile(targetEntry);
+        }
+
+        private static bool DirectoryContainsGeneratedFiles(string directory)
+        {
+            foreach (var filePath in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                if (IsGeneratedFile(filePath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsGeneratedFile(string filePath)
+        {
+            var fileName = Path.GetFileName(filePath);
+            if (string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.PreferencesRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.BranchSelectionRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.GraphManifestRelativePath), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, Path.GetFileName(WorkflowPreferenceRenderer.ImplementationBranchManifestRelativePath), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            try
+            {
+                return File.Exists(filePath)
+                       && File.ReadLines(filePath).FirstOrDefault() == SkillDocumentGenerator.GeneratedHeader;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ShouldSkipSyncFile(string sourceRoot, string filePath, HashSet<string> skippedRelativePaths)
+        {
+            if (skippedRelativePaths == null || skippedRelativePaths.Count == 0)
+            {
+                return false;
+            }
+
+            return skippedRelativePaths.Contains(NormalizeRelativePath(GetRelativeFilePath(sourceRoot, filePath)));
+        }
+
+        private static void CopyFileIfChanged(string sourceFile, string targetFile)
+        {
+            if (!IsFileCopyNeeded(sourceFile, targetFile))
+            {
+                return;
+            }
+
+            var targetDir = Path.GetDirectoryName(targetFile);
+            if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            File.Copy(sourceFile, targetFile, true);
+        }
+
+        internal static bool WriteTextIfChanged(string path, string content, Encoding encoding)
+        {
+            if (File.Exists(path))
+            {
+                try
+                {
+                    if (File.ReadAllBytes(path).SequenceEqual(GetEncodedBytes(content, encoding)))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                    // Fall through and rewrite unreadable or invalid files.
+                }
+            }
+
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(path, content, encoding);
+            return true;
+        }
+
+        private static byte[] GetEncodedBytes(string content, Encoding encoding)
+        {
+            var preamble = encoding.GetPreamble();
+            var body = encoding.GetBytes(content);
+            if (preamble == null || preamble.Length == 0)
+            {
+                return body;
+            }
+
+            var bytes = new byte[preamble.Length + body.Length];
+            Buffer.BlockCopy(preamble, 0, bytes, 0, preamble.Length);
+            Buffer.BlockCopy(body, 0, bytes, preamble.Length, body.Length);
+            return bytes;
+        }
+
+        private static string NormalizeRelativePath(string path)
+        {
+            return string.IsNullOrEmpty(path)
+                ? string.Empty
+                : path.Replace('\\', '/').Trim('/');
+        }
+
+        private static void DeleteFileSystemEntry(string path)
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+                return;
+            }
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
 
@@ -1136,8 +1363,8 @@ namespace AIBridge.Editor
                 { "HOST_EXEC_TITLE", AIBridgeEditorText.For(language, "Host Exec", "Host Exec") },
                 { "HOST_EXEC_RULE", AIBridgeEditorText.For(
                     language,
-                    "When AIBridge CLI is available, prefer `$CLI exec run --stdin` for external host tools such as `rg`, `git`, `dotnet`, `python`, `node`, `sg`, or `grep`, including quick search/display tasks; use `$CLI exec batch --stdin` for multiple jobs. Direct host shell is only for trivial one-off commands, explicit user preference, or when AIBridge CLI is unavailable.",
-                    "当 AIBridge CLI 可用时，调用 `rg`、`git`、`dotnet`、`python`、`node`、`sg`、`grep` 等外部 host 工具优先用 `$CLI exec run --stdin`，快速查找/显示任务也适用；多任务使用 `$CLI exec batch --stdin`。直接 host shell 仅用于极简单的一次性命令、用户明确要求或 AIBridge CLI 不可用时。") },
+                    "When AIBridge CLI is available, prefer `$CLI exec run --stdin` for external host tools such as `rg`, `git`, `dotnet`, `python`, `node`, `sg`, or `grep`, including quick search/display tasks; pass a JSON request through stdin or `--request-file`, and never append a raw shell command after `--stdin`. Use `$CLI exec batch --stdin` for multiple jobs. Direct host shell is only for trivial one-off commands, explicit user preference, or when AIBridge CLI is unavailable.",
+                    "当 AIBridge CLI 可用时，调用 `rg`、`git`、`dotnet`、`python`、`node`、`sg`、`grep` 等外部 host 工具优先用 `$CLI exec run --stdin`，快速查找/显示任务也适用；必须通过 stdin 或 `--request-file` 传入 JSON 请求，禁止把裸 shell 命令追加在 `--stdin` 后面。多任务使用 `$CLI exec batch --stdin`。直接 host shell 仅用于极简单的一次性命令、用户明确要求或 AIBridge CLI 不可用时。") },
                 { "PROJECT_VERSION_TITLE", AIBridgeEditorText.For(language, "Project Version", "项目版本") },
                 { "UNITY_VERSION", unityVersion },
                 { "CSHARP_LANGUAGE_VERSION", csharpLanguageVersion },
@@ -1162,14 +1389,14 @@ namespace AIBridge.Editor
             {
                 return AIBridgeEditorText.For(
                     language,
-                    "Code Index: enabled. For C# code lookup or source navigation, load `aibridge-code-index` first when the query can be expressed as symbol, definition, reference, implementation, derived type, caller, or diagnostic lookup. For Unity imported asset or script asset name/type lookup, use `asset search/find --format paths` when AIBridge and the Editor are available. Use `rg` for literal content, fuzzy text, non-C# repository files, arbitrary path regexes, or when Code Index/AIBridge is unavailable.",
-                    "Code Index：已启用。C# 代码查找或源码导航中，只要查询可表达为符号、定义、引用、实现、派生类型、调用者或诊断查询，应优先加载 `aibridge-code-index`。Unity 已导入资源或脚本资源的名称/类型查找中，当 AIBridge 和 Editor 可用时使用 `asset search/find --format paths`。字面量内容、模糊文本、非 C# 仓库文件、任意路径正则或 Code Index/AIBridge 不可用时使用 `rg`。");
+                    "Code Index: enabled. For C# code lookup or source navigation, load `aibridge-code-index` first when the query can be expressed as symbol, definition, reference, implementation, derived type, caller, or diagnostic lookup. For Unity imported asset or script asset name/type lookup, use `asset search/find --format paths` when AIBridge and the Editor are available. Use `text_index search` for literal or regex content search when available; use `rg` for fuzzy text, non-indexed repository files, arbitrary path regexes, or when Text Index/Code Index/AIBridge is unavailable.",
+                    "Code Index：已启用。C# 代码查找或源码导航中，只要查询可表达为符号、定义、引用、实现、派生类型、调用者或诊断查询，应优先加载 `aibridge-code-index`。Unity 已导入资源或脚本资源的名称/类型查找中，当 AIBridge 和 Editor 可用时使用 `asset search/find --format paths`。字面量或正则内容搜索优先使用 `text_index search`；模糊文本、未索引仓库文件、任意路径正则或 Text Index/Code Index/AIBridge 不可用时使用 `rg`。");
             }
 
             return AIBridgeEditorText.For(
                 language,
-                "Code Index: disabled. Do not call `code_index`; use `asset search/find --format paths` for Unity imported asset name/type lookup when AIBridge and the Editor are available, and use `rg` plus file reads for ordinary code/content searches.",
-                "Code Index：已关闭。不要调用 `code_index`；当 AIBridge 和 Editor 可用时，Unity 已导入资源的名称/类型查找使用 `asset search/find --format paths`，普通代码/内容搜索使用 `rg` 和文件读取。");
+                "Code Index: disabled. Do not call `code_index`; use `asset search/find --format paths` for Unity imported asset name/type lookup when AIBridge and the Editor are available, use `text_index search` for literal or regex content search when available, and use `rg` plus file reads as fallback.",
+                "Code Index：已关闭。不要调用 `code_index`；当 AIBridge 和 Editor 可用时，Unity 已导入资源的名称/类型查找使用 `asset search/find --format paths`；字面量或正则内容搜索优先使用 `text_index search`；不可用时使用 `rg` 和文件读取。");
         }
 
         private static bool ShouldInstallSkillDirectory(string sourceSkillDir)
@@ -1285,8 +1512,28 @@ namespace AIBridge.Editor
         {
             foreach (var result in results)
             {
+                if (!ShouldLogResult(result))
+                {
+                    continue;
+                }
+
                 AIBridgeLogger.LogInfo($"[SkillInstaller] {BuildCompactResultMessage(result)}");
             }
+        }
+
+        private static bool ShouldLogResult(AssistantIntegrationResult result)
+        {
+            if (result == null)
+            {
+                return false;
+            }
+
+            return IsVisibleAction(result.SkillFileAction) || IsVisibleAction(result.RootRuleAction);
+        }
+
+        private static bool IsVisibleAction(IntegrationAction action)
+        {
+            return action != IntegrationAction.None && action != IntegrationAction.AlreadyUpToDate;
         }
 
         private static string BuildCompactResultMessage(AssistantIntegrationResult result)

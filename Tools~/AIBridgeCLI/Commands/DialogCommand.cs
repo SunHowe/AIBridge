@@ -50,8 +50,8 @@ namespace AIBridgeCLI.Commands
             sb.AppendLine("  AIBridgeCLI dialog wait --timeout 5000 --click cancel");
             sb.AppendLine();
             sb.AppendLine("Options:");
-            sb.AppendLine("  --choice <name>      Logical choice: cancel, save, discard, ok, yes, no, delete, replace");
-            sb.AppendLine("  --button <text>      Exact visible button text");
+            sb.AppendLine("  --choice <name>      Logical choice from enabled status choices: cancel, save, discard, ok, yes, no, delete, replace");
+            sb.AppendLine("  --button <text>      Exact visible button text; use this when no logical choice is shown");
             sb.AppendLine("  --dialog-id <id>     Dialog id from status/list output");
             sb.AppendLine("  --click <choice>     For wait: click one button before waiting");
             sb.AppendLine("  --timeout <ms>       Wait timeout in milliseconds");
@@ -167,10 +167,31 @@ namespace AIBridgeCLI.Commands
                     Console.WriteLine(indent + "  buttons:");
                     foreach (var button in dialog.buttons)
                     {
-                        Console.WriteLine(indent + "    - " + button.text + " (" + button.choice + ")");
+                        var choiceText = FormatChoices(button);
+                        Console.WriteLine(indent + "    - " + button.text + choiceText);
                     }
                 }
             }
+        }
+
+        private static string FormatChoices(DialogButtonInfo button)
+        {
+            if (button == null)
+            {
+                return string.Empty;
+            }
+
+            if (!button.enabled)
+            {
+                return " (disabled)";
+            }
+
+            if (button.choices != null && button.choices.Count > 0)
+            {
+                return " (" + string.Join(", ", button.choices.ToArray()) + ")";
+            }
+
+            return string.IsNullOrWhiteSpace(button.choice) ? string.Empty : " (" + button.choice + ")";
         }
 
         private static JsonSerializerSettings JsonSettings()

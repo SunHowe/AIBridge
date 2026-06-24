@@ -75,7 +75,7 @@ Large outputs should be saved as artifacts and referenced by path or id instead 
 - During execution, emit a short visible status block when entering a phase or step: use `【模式：...】` for the active business mode and `-> ...` for phase/step progress, then put active Skills, expected output, and handoff or gate status on separate lines.
 - Each phase or external task pack should declare only the Skills required for that phase; candidate Skills that are not read yet should stay deferred.
 - Release mode-specific Skill dependencies only at Mode Exit, phase boundary, or step handoff, then pass a compact handoff instead of the previous phase's full Skill details.
-- A handoff should use the `SkillHandoff` schema and include `completedMode`, `releasedSkills`, `nextRecommendedSkills`, `summary`, `artifactRefs`, `gates`, and `openRisks`.
+- A structured continuation handoff should use the `SkillHandoff` schema and include `completedMode`, `releasedSkills`, `nextRecommendedSkills`, `summary`, `artifactRefs`, `gates`, and `openRisks`; keep releasedSkills / nextRecommendedSkills out of the final user-facing report unless the user asks for workflow internals.
 - If the next phase needs a released Skill, match and load it again from the current phase's requirements.
 - This is a workflow-level context slimming rule. It does not guarantee that already-read Skill text is physically removed from the model context; actual removal depends on the current AI harness, sub-agent, or compaction support.
 

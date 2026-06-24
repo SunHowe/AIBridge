@@ -1,0 +1,316 @@
+{
+  "schemaVersion": 1,
+  "name": "performance-hotspot-investigation",
+  "title": "Performance Hotspot Investigation",
+  "description": "Collect Editor Profiler snapshots, Runtime status/log/screenshot evidence, a bounded Runtime performance sample, and write a hotspot investigation report without applying fixes.",
+  "version": "1.0.0",
+  "requiredSkills": [
+    "aibridge-development-workflow"
+  ],
+  "inputs": {
+    "target": {
+      "description": "Runtime target id, latest, or URL-backed target.",
+      "default": "latest"
+    },
+    "scenario": {
+      "description": "Scenario name or short description for the sampling window.",
+      "default": "unspecified"
+    },
+    "duration": {
+      "description": "Runtime perf sampling duration.",
+      "default": "15s"
+    },
+    "interval": {
+      "description": "Runtime perf sample interval.",
+      "default": "100ms"
+    },
+    "hitchThresholdMs": {
+      "description": "Frame time threshold counted as a hitch.",
+      "default": 50
+    },
+    "logCount": {
+      "description": "Number of recent Editor and Runtime error logs to collect.",
+      "default": 100
+    }
+  },
+  "phases": [
+    {
+      "id": "frame-scope",
+      "type": "barrier",
+      "description": "Record target, scenario, sampling window, interval, and hitch threshold before collecting evidence.",
+      "requiredSkills": [
+        "aibridge-development-workflow"
+      ],
+      "steps": [
+        {
+          "id": "record-performance-scope",
+          "kind": "barrier",
+          "description": "Scope: scenario={{scenario}}, target={{target}}, duration={{duration}}, interval={{interval}}, hitchThresholdMs={{hitchThresholdMs}}.",
+          "outputs": [
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collect-editor-profiler",
+      "type": "serial",
+      "description": "Collect Editor Profiler snapshots and recent Editor error logs.",
+      "dependsOn": [
+        "frame-scope"
+      ],
+      "requiredSkills": [
+        "aibridge"
+      ],
+      "steps": [
+        {
+          "id": "profiler-status",
+          "kind": "cli",
+          "description": "Read Editor Profiler status and supported surfaces.",
+          "command": "profiler get_status",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "profiler-frame",
+          "kind": "cli",
+          "description": "Capture current Editor frame timing snapshot.",
+          "command": "profiler capture_frame",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "profiler-memory",
+          "kind": "cli",
+          "description": "Capture Editor memory snapshot.",
+          "command": "profiler get_memory_stats",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "profiler-rendering",
+          "kind": "cli",
+          "description": "Capture Editor rendering snapshot.",
+          "command": "profiler get_rendering_stats",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "profiler-script",
+          "kind": "cli",
+          "description": "Capture stable script/GC derived stats and unsupported function-level timing notice.",
+          "command": "profiler get_script_stats",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "editor-error-logs",
+          "kind": "cli",
+          "description": "Collect recent Editor Console errors as context for performance anomalies.",
+          "command": "get_logs --logType Error --count {{logCount}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collect-runtime-baseline",
+      "type": "serial",
+      "description": "Collect Runtime target reachability, error logs, and visual state before sampling.",
+      "dependsOn": [
+        "collect-editor-profiler"
+      ],
+      "requiredSkills": [
+        "aibridge"
+      ],
+      "steps": [
+        {
+          "id": "runtime-list-targets",
+          "kind": "cli",
+          "description": "List known Runtime targets before selecting one.",
+          "command": "runtime list_targets",
+          "outputs": [
+            "RuntimeTargetRef",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-status",
+          "kind": "cli",
+          "description": "Check selected Runtime target reachability and status.",
+          "command": "runtime status --target {{target}}",
+          "outputs": [
+            "RuntimeTargetRef",
+            "ValidationResult"
+          ]
+        },
+        {
+          "id": "runtime-error-logs",
+          "kind": "cli",
+          "description": "Collect recent Runtime errors as performance context.",
+          "command": "runtime logs --target {{target}} --logType Error --count {{logCount}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        },
+        {
+          "id": "runtime-screenshot",
+          "kind": "cli",
+          "description": "Capture Runtime visual state for the sampled scenario.",
+          "command": "runtime screenshot --target {{target}}",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "collect-runtime-performance",
+      "type": "serial",
+      "description": "Collect the bounded Runtime performance sample.",
+      "dependsOn": [
+        "collect-runtime-baseline"
+      ],
+      "requiredSkills": [
+        "aibridge"
+      ],
+      "releaseSkillsAfter": [
+        "aibridge"
+      ],
+      "steps": [
+        {
+          "id": "runtime-perf-sample",
+          "kind": "cli",
+          "description": "Sample FPS, frame time, hitch count, memory, GC, rendering, warnings, and unsupported surfaces.",
+          "command": "runtime perf --target {{target}} --duration {{duration}} --interval {{interval}} --hitchThresholdMs {{hitchThresholdMs}}",
+          "outputs": [
+            "ValidationResult",
+            "ArtifactRef"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "summarize-performance-evidence",
+      "type": "barrier",
+      "description": "Merge collected performance artifact references and preserve missing or unsupported evidence as report context.",
+      "dependsOn": [
+        "collect-runtime-performance"
+      ],
+      "requiredSkills": [
+        "aibridge-workflow-orchestration"
+      ],
+      "releaseSkillsAfter": [
+        "aibridge-workflow-orchestration"
+      ],
+      "steps": [
+        {
+          "id": "merge-performance-artifacts",
+          "kind": "barrier",
+          "description": "Prepare runtime-perf, profiler-snapshot, log, status, and screenshot evidence for the workflow report.",
+          "outputs": [
+            "ArtifactRef",
+            "ValidationResult"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "report",
+      "description": "Write the performance hotspot report with artifact links and parsed perf summary tables.",
+      "dependsOn": [
+        "summarize-performance-evidence"
+      ],
+      "steps": [
+        {
+          "id": "write-performance-report",
+          "kind": "report",
+          "description": "Generate the Markdown performance hotspot report.",
+          "outputs": [
+            "ArtifactRef"
+          ]
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "runtime-reachable",
+      "kind": "runtimeReachable",
+      "required": true
+    },
+    {
+      "id": "runtime-perf-evidence",
+      "kind": "artifactRequired",
+      "required": true,
+      "artifactKind": "runtime-perf",
+      "min": 1
+    },
+    {
+      "id": "profiler-snapshot-evidence",
+      "kind": "artifactRequired",
+      "required": false,
+      "artifactKind": "profiler-snapshot",
+      "min": 1
+    },
+    {
+      "id": "runtime-errors",
+      "kind": "runtimeErrors",
+      "required": false,
+      "threshold": {
+        "max": 0
+      }
+    },
+    {
+      "id": "runtime-screenshot-exists",
+      "kind": "screenshotExists",
+      "required": false
+    }
+  ],
+  "artifacts": [
+    {
+      "kind": "profiler-snapshot",
+      "description": "Editor Profiler status, frame, memory, rendering, and script snapshots.",
+      "required": false
+    },
+    {
+      "kind": "console-log",
+      "description": "Editor Console error evidence collected before Runtime sampling.",
+      "required": false
+    },
+    {
+      "kind": "runtime-status",
+      "description": "Runtime target reachability and status evidence.",
+      "required": true
+    },
+    {
+      "kind": "runtime-log",
+      "description": "Runtime error log evidence collected before sampling.",
+      "required": false
+    },
+    {
+      "kind": "runtime-screenshot",
+      "description": "Runtime screenshot evidence for the sampled scenario.",
+      "required": false
+    },
+    {
+      "kind": "runtime-perf",
+      "description": "Runtime performance sample with FPS, frame time, hitch, memory, GC, rendering, warning, and unsupported data.",
+      "required": true
+    },
+    {
+      "kind": "workflow-report",
+      "description": "Performance hotspot Markdown report.",
+      "required": true
+    }
+  ]
+}

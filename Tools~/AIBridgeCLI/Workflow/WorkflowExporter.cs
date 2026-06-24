@@ -85,6 +85,8 @@ namespace AIBridgeCLI.Workflow
             sb.AppendLine("- Reference large logs, screenshots, and reports by artifact id or path; do not paste large payloads into the task context.");
             sb.AppendLine("- Before resuming an existing run, inspect `workflow status --run <runId>` and continue from missing gates or skipped external steps.");
             sb.AppendLine("- Do not treat `skipped_requires_external_executor` as completed work; the current harness, main agent, or human operator must execute and import those results.");
+            sb.AppendLine("- `workflow status` and `workflow report` surface `terminalState`, external handoff gaps, and evidence freshness; stale evidence does not satisfy required gates.");
+            sb.AppendLine("- `workflow finish --status passed` is downgraded when required external outputs are missing or evidence freshness is stale.");
             sb.AppendLine();
             WriteSkillScopeSection(sb, recipe);
             sb.AppendLine("## Inputs");
@@ -184,8 +186,9 @@ namespace AIBridgeCLI.Workflow
             }
 
             sb.AppendLine("- Treat Skill routing as preflight, not as a business phase.");
-            sb.AppendLine("- When executing a phase or step, emit short visible status blocks: use `【入口：...】` only for routing, `【模式：...】` for business modes, and `-> ...` for phase/step progress. Put active Skills, expected output, handoff, and gate status on separate lines.");
-            sb.AppendLine("- At Mode Exit or phase boundaries, pass compact handoff summaries, artifact refs, gates, and open risks instead of previous phase Skill details.");
+            sb.AppendLine("- When executing a phase or step, emit short visible status blocks: use `【入口：...】` only for routing, `【模式：...】` for business modes, and `-> ...` for phase/step progress. Put expected output, handoff, and gate status on separate lines.");
+            sb.AppendLine("- Skill listing policy: list active Skills only in routing/mode-enter status blocks or when active Skills change. Omit used/released/next Skills from progress updates, Mode Exit summaries, and final user-facing reports.");
+            sb.AppendLine("- Keep releasedSkills/nextRecommendedSkills in structured SkillHandoff data for continuation, workflow import, or external-agent handoff.");
             sb.AppendLine();
         }
 

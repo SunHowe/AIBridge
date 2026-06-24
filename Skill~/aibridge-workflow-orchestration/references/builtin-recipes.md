@@ -46,6 +46,15 @@ Use when the task is to investigate a Runtime, Player, Play Mode, UI, log, or pe
 - Gates: required evidence gates for Editor logs, Runtime reachability, Runtime status, and Runtime logs; optional screenshot and confirmed external verdict.
 - Boundary: Runtime errors are diagnosis evidence, not a required zero-error health gate. Apply fixes only after a confirmed cause is handed off to an implementation workflow.
 
+## performance-hotspot-investigation
+
+Use for routine performance hotspot evidence collection and an AI-readable Markdown report before deciding whether a deeper diagnosis or fix is needed.
+
+- Phases: frame scope, collect Editor Profiler, collect Runtime baseline, collect Runtime performance, summarize evidence, report.
+- CLI steps: `profiler get_status`, `profiler capture_frame`, `profiler get_memory_stats`, `profiler get_rendering_stats`, `profiler get_script_stats`, `get_logs`, `runtime list_targets`, `runtime status`, `runtime logs`, `runtime screenshot`, `runtime perf`.
+- Gates: required Runtime reachability and `runtime-perf` evidence; optional Profiler snapshot, Runtime error, and screenshot gates.
+- Boundary: no fixes, no Unity compile, no streaming listener, and no function-level script timings. Use a workflow timeout longer than the sampling window, for example `--timeout 30000` for the default 15-second sample.
+
 ## runtime-ui-validation
 
 Use for validating UI behavior through Runtime or Play Mode action paths.

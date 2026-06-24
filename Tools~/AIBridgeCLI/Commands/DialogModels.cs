@@ -45,6 +45,7 @@ namespace AIBridgeCLI.Commands
         public string id { get; set; }
         public string text { get; set; }
         public string choice { get; set; }
+        public List<string> choices { get; set; }
         public bool enabled { get; set; }
     }
 }

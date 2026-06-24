@@ -21,6 +21,38 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
+        public void ProfilerSnapshotData_CarriesRuntimeUnsupportedItems()
+        {
+            var snapshot = new ProfilerSnapshot
+            {
+                source = "runtime",
+                targetId = "runtime-test",
+                stats = new ProfilerStats
+                {
+                    frame = new ProfilerFrameStats
+                    {
+                        frameCount = 10,
+                        fps = 60d
+                    },
+                    rendering = new ProfilerRenderingStats
+                    {
+                        targetFrameRate = 60,
+                        vSyncCount = 1,
+                        graphicsDeviceType = "Null"
+                    }
+                },
+                unsupported = new[]
+                {
+                    new ProfilerUnsupportedItem("profilerWindow", "Runtime target cannot open the Unity Editor Profiler window.")
+                }
+            };
+
+            Assert.AreEqual("runtime", snapshot.source);
+            Assert.AreEqual(60d, snapshot.stats.frame.fps);
+            Assert.AreEqual("profilerWindow", snapshot.unsupported[0].feature);
+        }
+
+        [Test]
         public void LogBuffer_ClearAndFiltersWork()
         {
             var buffer = new AIBridgeRuntimeLogBuffer();
@@ -72,6 +104,33 @@ namespace AIBridge.Editor.Tests
 
                 Assert.That(entries.Length, Is.EqualTo(1));
                 Assert.That(entries[0].frame, Is.EqualTo(-1));
+            }
+            finally
+            {
+                buffer.Dispose();
+            }
+        }
+
+        [Test]
+        public void LogBuffer_RingBufferKeepsNewestEntriesInOrder()
+        {
+            var buffer = new AIBridgeRuntimeLogBuffer();
+            buffer.Initialize(3);
+
+            try
+            {
+                for (var i = 0; i < 5; i++)
+                {
+                    var message = "aibridge-runtime-log-buffer-ring-" + i;
+                    LogAssert.Expect(LogType.Log, message);
+                    Debug.Log(message);
+                }
+
+                var entries = buffer.GetEntries(10, "Log", "aibridge-runtime-log-buffer-ring-", false, null, null);
+                Assert.That(entries.Length, Is.EqualTo(3));
+                Assert.That(entries[0].message, Is.EqualTo("aibridge-runtime-log-buffer-ring-2"));
+                Assert.That(entries[1].message, Is.EqualTo("aibridge-runtime-log-buffer-ring-3"));
+                Assert.That(entries[2].message, Is.EqualTo("aibridge-runtime-log-buffer-ring-4"));
             }
             finally
             {

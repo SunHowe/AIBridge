@@ -17,6 +17,7 @@ namespace AIBridge.Editor.Tests
             "runtime-target-sweep",
             "runtime-debug-investigation",
             "runtime-ui-validation",
+            "performance-hotspot-investigation",
             "prefab-asset-sweep",
             "bug-hunter-loop",
             "harness-readiness-check"
@@ -82,6 +83,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("skipped_requires_external_executor", schema);
             StringAssert.Contains("runtime-target-sweep", recipes);
             StringAssert.Contains("runtime-debug-investigation", recipes);
+            StringAssert.Contains("performance-hotspot-investigation", recipes);
             StringAssert.Contains("prefab-asset-sweep", recipes);
             StringAssert.Contains("harness-readiness-check", recipes);
             StringAssert.Contains("harness status", recipes);
@@ -94,6 +96,12 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("workflow status --run", schema);
             StringAssert.Contains("--detail full", schema);
             StringAssert.Contains("do not read full `manifest.json` or Markdown reports for routine status", schema);
+            StringAssert.Contains("terminalState", schema);
+            StringAssert.Contains("terminalReason", schema);
+            StringAssert.Contains("retryBudget", schema);
+            StringAssert.Contains("stopWhen", schema);
+            StringAssert.Contains("loopIteration", schema);
+            StringAssert.Contains("forward-compatible metadata", schema);
             StringAssert.Contains("Never parallel-write", schema);
             StringAssert.Contains("requiredSkills", schema);
             StringAssert.Contains("releaseSkillsAfter", schema);
@@ -117,8 +125,10 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("workflow status --run <runId>", exporter);
             StringAssert.Contains("Skill Routing And Scope", exporter);
             StringAssert.Contains("emit short visible status blocks", exporter);
+            StringAssert.Contains("Skill listing policy", exporter);
             StringAssert.Contains("`【模式：...】`", exporter);
             StringAssert.Contains("`-> ...`", exporter);
+            StringAssert.Contains("Omit used/released/next Skills", exporter);
             StringAssert.Contains("\"evidence\"", importer);
             StringAssert.Contains("\"command-evidence\"", importer);
             StringAssert.Contains("\"skill-handoff\"", importer);
@@ -126,6 +136,17 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("## Skill Scope", report);
             StringAssert.Contains("HarnessCommandBuilder", registry);
             StringAssert.Contains("capabilities.json", harnessCommand);
+        }
+
+        [Test]
+        public void WorkflowPreferenceRendererUsesResultFocusedHandoff()
+        {
+            var packageRoot = GetPackageRoot();
+            var renderer = File.ReadAllText(Path.Combine(packageRoot, "Editor", "Utils", "WorkflowPreferences", "WorkflowPreferenceRenderer.cs"));
+
+            StringAssert.Contains("面向用户只列关键产出", renderer);
+            StringAssert.Contains("Skill 列出策略", renderer);
+            StringAssert.Contains("releasedSkills / nextRecommendedSkills", renderer);
         }
 
         private static void AssertRecipeShape(string file, string[] allowedNames)

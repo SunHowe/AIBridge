@@ -24,6 +24,8 @@ namespace AIBridge.Runtime.Diagnostics
     [Serializable]
     public sealed class RuntimePerfResult
     {
+        public string source;
+        public string timestampUtc;
         public string targetId;
         public int durationMs;
         public int intervalMs;
@@ -31,7 +33,10 @@ namespace AIBridge.Runtime.Diagnostics
         public RuntimePerfFpsStats fps;
         public RuntimePerfFrameTimeStats frameTimeMs;
         public RuntimePerfMemoryStats memory;
+        public RuntimePerfRenderingStats rendering;
         public RuntimePerfGcStats gc;
+        public ProfilerStats stats;
+        public ProfilerUnsupportedItem[] unsupported;
         public string recorderMode;
         public string[] warnings;
     }
@@ -62,6 +67,19 @@ namespace AIBridge.Runtime.Diagnostics
         public long gcUsedBytes;
         public long totalReservedBytes;
         public long systemUsedBytes;
+        public long graphicsDriverBytes;
+    }
+
+    [Serializable]
+    public sealed class RuntimePerfRenderingStats
+    {
+        public int vSyncCount;
+        public int targetFrameRate;
+        public string graphicsDeviceType;
+        public string graphicsDeviceName;
+        public int screenWidth;
+        public int screenHeight;
+        public string renderPipeline;
     }
 
     [Serializable]
@@ -254,16 +272,78 @@ namespace AIBridge.Runtime.Diagnostics
                 max = sortedFps.Count == 0 ? 0d : sortedFps[sortedFps.Count - 1]
             };
 
+            var memoryStats = CaptureMemoryStats();
+            var gcStats = CaptureGcStats();
+            var renderingStats = CaptureRenderingStats(frameStats, fpsStats);
+            var unsupported = BuildUnsupportedItems();
+            var profilerStats = new ProfilerStats
+            {
+                status = new ProfilerStatusStats
+                {
+                    profilerEnabled = false,
+                    isEditor = Application.isEditor,
+                    isPlaying = true,
+                    isPaused = false,
+                    supportsRuntimeProfiler = true,
+                    supportsEditorProfiler = false
+                },
+                frame = new ProfilerFrameStats
+                {
+                    frameCount = Time.frameCount,
+                    deltaTimeMs = frameStats.avg,
+                    fps = fpsStats.avg,
+                    realtimeSinceStartup = Time.realtimeSinceStartup,
+                    sampleSource = _usingProfilerRecorder ? "profilerRecorder" : "time"
+                },
+                memory = new ProfilerMemoryStats
+                {
+                    totalReservedBytes = memoryStats.totalReservedBytes,
+                    totalAllocatedBytes = SafeProfilerValue(Profiler.GetTotalAllocatedMemoryLong),
+                    totalUnusedReservedBytes = SafeProfilerValue(Profiler.GetTotalUnusedReservedMemoryLong),
+                    monoUsedBytes = memoryStats.monoUsedBytes,
+                    monoHeapBytes = SafeProfilerValue(Profiler.GetMonoHeapSizeLong),
+                    gcUsedBytes = memoryStats.gcUsedBytes,
+                    systemUsedBytes = memoryStats.systemUsedBytes,
+                    graphicsDriverBytes = memoryStats.graphicsDriverBytes
+                },
+                rendering = new ProfilerRenderingStats
+                {
+                    frameTimeMs = frameStats.avg,
+                    fps = fpsStats.avg,
+                    vSyncCount = renderingStats.vSyncCount,
+                    targetFrameRate = renderingStats.targetFrameRate,
+                    graphicsDeviceType = renderingStats.graphicsDeviceType,
+                    graphicsDeviceName = renderingStats.graphicsDeviceName,
+                    screenWidth = renderingStats.screenWidth,
+                    screenHeight = renderingStats.screenHeight,
+                    renderPipeline = renderingStats.renderPipeline
+                },
+                script = new ProfilerScriptStats
+                {
+                    mainThreadFrameTimeMs = frameStats.avg,
+                    gcAllocatedBytesDelta = gcStats.allocatedBytesDelta,
+                    gcCollectionCount0Delta = gcStats.collectionCount0Delta,
+                    monoUsedBytes = memoryStats.monoUsedBytes,
+                    gcUsedBytes = memoryStats.gcUsedBytes,
+                    timingSource = _usingProfilerRecorder ? "profilerRecorder" : "time"
+                }
+            };
+
             return new RuntimePerfResult
             {
+                source = "runtime",
+                timestampUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
                 targetId = targetId,
                 durationMs = _request.durationMs,
                 intervalMs = _request.intervalMs,
                 sampleCount = _frameTimeSamples.Count,
                 fps = fpsStats,
                 frameTimeMs = frameStats,
-                memory = CaptureMemoryStats(),
-                gc = CaptureGcStats(),
+                memory = memoryStats,
+                rendering = renderingStats,
+                gc = gcStats,
+                stats = profilerStats,
+                unsupported = unsupported,
                 recorderMode = _usingProfilerRecorder ? "profilerRecorder" : "basic",
                 warnings = _warnings.ToArray()
             };
@@ -276,7 +356,8 @@ namespace AIBridge.Runtime.Diagnostics
                 monoUsedBytes = SafeProfilerValue(Profiler.GetMonoUsedSizeLong),
                 gcUsedBytes = GC.GetTotalMemory(false),
                 totalReservedBytes = SafeProfilerValue(Profiler.GetTotalReservedMemoryLong),
-                systemUsedBytes = 0L
+                systemUsedBytes = 0L,
+                graphicsDriverBytes = SafeProfilerLongMethod("GetAllocatedMemoryForGraphicsDriver")
             };
 
 #if UNITY_2020_2_OR_NEWER
@@ -306,6 +387,53 @@ namespace AIBridge.Runtime.Diagnostics
 #endif
 
             return stats;
+        }
+
+        private RuntimePerfRenderingStats CaptureRenderingStats(RuntimePerfFrameTimeStats frameStats, RuntimePerfFpsStats fpsStats)
+        {
+            return new RuntimePerfRenderingStats
+            {
+                vSyncCount = QualitySettings.vSyncCount,
+                targetFrameRate = Application.targetFrameRate,
+                graphicsDeviceType = SystemInfo.graphicsDeviceType.ToString(),
+                graphicsDeviceName = SystemInfo.graphicsDeviceName,
+                screenWidth = Screen.width,
+                screenHeight = Screen.height,
+                renderPipeline = GetRenderPipelineName()
+            };
+        }
+
+        private static string GetRenderPipelineName()
+        {
+            var pipeline = GetGraphicsSettingsPipeline("defaultRenderPipeline")
+                ?? GetGraphicsSettingsPipeline("renderPipelineAsset")
+                ?? GetGraphicsSettingsPipeline("currentRenderPipeline");
+            return pipeline != null ? pipeline.GetType().FullName : "Built-in";
+        }
+
+        private static object GetGraphicsSettingsPipeline(string propertyName)
+        {
+            try
+            {
+                var property = typeof(UnityEngine.Rendering.GraphicsSettings).GetProperty(propertyName);
+                return property != null ? property.GetValue(null, null) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ProfilerUnsupportedItem[] BuildUnsupportedItems()
+        {
+            return new[]
+            {
+                new ProfilerUnsupportedItem("profilerWindow", "Runtime target cannot open or focus the Unity Editor Profiler window."),
+                new ProfilerUnsupportedItem("moduleToggle", "Runtime target cannot change Unity Editor Profiler module state."),
+                new ProfilerUnsupportedItem("clearEditorProfilerData", "Runtime target cannot clear Unity Editor Profiler frame history."),
+                new ProfilerUnsupportedItem("loadEditorProfilerData", "Runtime target cannot load Unity Editor Profiler frame history."),
+                new ProfilerUnsupportedItem("scriptFunctionTimings", "Runtime target exposes frame and GC timing only; function-level script timings are not available through the stable Runtime bridge.")
+            };
         }
 
         private RuntimePerfGcStats CaptureGcStats()
@@ -601,6 +729,24 @@ namespace AIBridge.Runtime.Diagnostics
             try
             {
                 return getter == null ? 0L : getter();
+            }
+            catch
+            {
+                return 0L;
+            }
+        }
+
+        private static long SafeProfilerLongMethod(string methodName)
+        {
+            try
+            {
+                var method = typeof(Profiler).GetMethod(methodName, System.Type.EmptyTypes);
+                if (method == null || method.ReturnType != typeof(long))
+                {
+                    return 0L;
+                }
+
+                return (long)method.Invoke(null, null);
             }
             catch
             {

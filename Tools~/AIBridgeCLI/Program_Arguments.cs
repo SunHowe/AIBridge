@@ -77,6 +77,13 @@ namespace AIBridgeCLI
                             continue;
                         }
 
+                        if (IsTextIndexSearchQueryShortcut(result))
+                        {
+                            result.ExtraArgs.Add(arg);
+                            i++;
+                            continue;
+                        }
+
                         // For multi command, collect extra args
                         if (result.CommandType.Equals("multi", StringComparison.OrdinalIgnoreCase))
                         {
@@ -84,7 +91,7 @@ namespace AIBridgeCLI
                         }
                         else
                         {
-                            throw new ArgumentException($"Unexpected argument: {arg}");
+                            throw new ArgumentException(BuildUnexpectedArgumentMessage(result, arg));
                         }
                     }
                     i++;
@@ -92,6 +99,33 @@ namespace AIBridgeCLI
             }
 
             return result;
+        }
+
+        private static string BuildUnexpectedArgumentMessage(ParsedArgs result, string arg)
+        {
+            if (IsExecStdinTrailingArgument(result))
+            {
+                var action = string.IsNullOrWhiteSpace(result.Action) ? "run" : result.Action;
+                return "Unexpected argument after exec " + action + " --stdin: " + arg + Environment.NewLine
+                    + "exec run/batch --stdin reads a JSON request from standard input; it does not accept a raw shell command after --stdin." + Environment.NewLine
+                    + "Pipe JSON into the CLI instead. PowerShell example:" + Environment.NewLine
+                    + "@'" + Environment.NewLine
+                    + "{ \"command\": \"rg\", \"args\": [\"-n\"], \"queries\": [\"TODO\"], \"paths\": [\"Packages\"] }" + Environment.NewLine
+                    + "'@ | & ./.aibridge/cli/AIBridgeCLI.exe exec run --stdin";
+            }
+
+            return $"Unexpected argument: {arg}";
+        }
+
+        private static bool IsExecStdinTrailingArgument(ParsedArgs result)
+        {
+            return result != null
+                && result.CommandType != null
+                && result.Action != null
+                && result.CommandType.Equals("exec", StringComparison.OrdinalIgnoreCase)
+                && (result.Action.Equals("run", StringComparison.OrdinalIgnoreCase)
+                    || result.Action.Equals("batch", StringComparison.OrdinalIgnoreCase))
+                && result.Options.ContainsKey("stdin");
         }
 
         private static bool IsRuntimeLogsClearShortcut(ParsedArgs result, string arg)
@@ -102,6 +136,18 @@ namespace AIBridgeCLI
                 && result.CommandType.Equals("runtime", StringComparison.OrdinalIgnoreCase)
                 && result.Action.Equals("logs", StringComparison.OrdinalIgnoreCase)
                 && arg.Equals("clear", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTextIndexSearchQueryShortcut(ParsedArgs result)
+        {
+            if (result == null || result.CommandType == null || result.Action == null)
+            {
+                return false;
+            }
+
+            return result.CommandType.Equals("text_index", StringComparison.OrdinalIgnoreCase)
+                   && result.Action.Equals("search", StringComparison.OrdinalIgnoreCase)
+                   && result.ExtraArgs.Count == 0;
         }
 
         static string BuildWorkflowSourceCommand(ParsedArgs parsed)

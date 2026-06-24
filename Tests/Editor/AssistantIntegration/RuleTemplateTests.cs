@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
+using UnityEditor.PackageManager;
 
 namespace AIBridge.Editor.Tests
 {
@@ -62,6 +63,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("$CLI exec run --stdin", rootRule);
             StringAssert.Contains("$CLI exec batch --stdin", rootRule);
             StringAssert.Contains("including quick search/display tasks", rootRule);
+            StringAssert.Contains("never append a raw shell command after `--stdin`", rootRule);
             StringAssert.DoesNotContain("In AIBridge workflow tasks", rootRule);
             StringAssert.Contains("without loading `aibridge-development-workflow`", rootRule);
             StringAssert.Contains("simple search/display", rootRule);
@@ -103,6 +105,7 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("外部 host 工具", rootRule);
             StringAssert.Contains("$CLI exec run --stdin", rootRule);
             StringAssert.Contains("快速查找/显示任务也适用", rootRule);
+            StringAssert.Contains("禁止把裸 shell 命令追加在 `--stdin` 后面", rootRule);
             Assert.Less(
                 rootRule.IndexOf("**路由原则**", StringComparison.Ordinal),
                 rootRule.IndexOf("**项目版本**", StringComparison.Ordinal));
@@ -127,26 +130,24 @@ namespace AIBridge.Editor.Tests
 
             var workflowSkillPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "SKILL.md");
             var workflowSkill = File.ReadAllText(workflowSkillPath);
-            StringAssert.Contains("C# 代码查找", workflowSkill);
-            StringAssert.Contains("优先加入 `aibridge-code-index`", workflowSkill);
+            StringAssert.Contains("快速任务不进入本 Skill", workflowSkill);
+            StringAssert.Contains("references/project-workflow-preferences.md", workflowSkill);
+            StringAssert.Contains("references/branch-selection.md", workflowSkill);
+            StringAssert.Contains("references/harness-readiness-detail.md", workflowSkill);
+            StringAssert.Contains("编排分支按需加载 `aibridge-workflow-orchestration`", workflowSkill);
+            StringAssert.Contains("C# 语义关系查询", workflowSkill);
+            StringAssert.Contains("aibridge-code-index", workflowSkill);
             StringAssert.Contains("Unity 已导入资源路径查找", workflowSkill);
             StringAssert.Contains("asset search/find --format paths", workflowSkill);
-            StringAssert.Contains("字面量字符串", workflowSkill);
-            StringAssert.Contains("rg -n", workflowSkill);
-            StringAssert.Contains("Harness 能力探测模式", workflowSkill);
-            StringAssert.Contains("references/harness-readiness.md", workflowSkill);
-            StringAssert.Contains("【入口：Preflight / Skill 路由】", workflowSkill);
-            StringAssert.Contains("【模式：调试诊断分支】", workflowSkill);
-            StringAssert.Contains("需求讨论分支", workflowSkill);
-            StringAssert.DoesNotContain("需求讨论模式", workflowSkill);
-            StringAssert.DoesNotContain("-> 基线证据收集", workflowSkill);
-            StringAssert.DoesNotContain("读取日志、Runtime 状态和相关代码入口。", workflowSkill);
-            StringAssert.Contains("activeSkills", workflowSkill);
-            StringAssert.Contains("快速任务不进入本 Skill", workflowSkill);
-            StringAssert.Contains("如误入本 Skill，停止展开分支和 Harness 探测", workflowSkill);
-            StringAssert.Contains("风险审查/验证结论", workflowSkill);
-            StringAssert.Contains("优先使用 RootRule compact 摘要", workflowSkill);
-            StringAssert.Contains("Workflow report/manifest 默认作为 artifact ref", workflowSkill);
+            StringAssert.Contains("$CLI text_index search \"literal\"", workflowSkill);
+            StringAssert.Contains("$CLI compile unity", workflowSkill);
+            StringAssert.Contains("compile dotnet", workflowSkill);
+            StringAssert.Contains("workflow import", workflowSkill);
+            StringAssert.Contains("compact-first", workflowSkill);
+            StringAssert.Contains("不把 stale snapshot", workflowSkill);
+            StringAssert.DoesNotContain("使用 Skills：", workflowSkill);
+            StringAssert.DoesNotContain("【模式：调试诊断分支】", workflowSkill);
+            Assert.Less(workflowSkill.Length, 6000, "workflow skill should stay compact");
 
             var preferencesPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "project-workflow-preferences.md");
             var preferences = File.ReadAllText(preferencesPath);
@@ -159,13 +160,32 @@ namespace AIBridge.Editor.Tests
             var branchSelection = File.ReadAllText(branchSelectionPath);
             StringAssert.Contains("【入口：Preflight / Skill 路由】", branchSelection);
             StringAssert.Contains("【模式：<启用分支之一>】", branchSelection);
+            StringAssert.Contains("aibridge-code-index、text_index、rg fallback", branchSelection);
+            StringAssert.Contains("Harness 判定是 Preflight gate", branchSelection);
+            StringAssert.Contains("fresh 且不影响工具选择时不单独输出", branchSelection);
             StringAssert.Contains("需求讨论分支", branchSelection);
             StringAssert.DoesNotContain("需求讨论模式", branchSelection);
             StringAssert.DoesNotContain("-> <当前步骤>", branchSelection);
             StringAssert.DoesNotContain("<当前步骤正在收集或产出的内容>", branchSelection);
             Assert.IsFalse(branchSelection.Contains("【任务分流步骤】"));
             Assert.IsFalse(branchSelection.Contains("【分支模式】"));
+            Assert.IsFalse(branchSelection.Contains("【模式：Harness"));
             Assert.IsFalse(branchSelection.Contains("说明：<当前步骤正在收集或产出的内容>"));
+            Assert.IsFalse(branchSelection.Contains("使用 Skills："));
+
+            var reviewBranchPath = Path.Combine(ProjectRoot, ".codex", "skills", "aibridge-development-workflow", "references", "branches", "review.md");
+            var reviewBranch = File.ReadAllText(reviewBranchPath);
+            StringAssert.Contains("字面量、注释、普通代码内容或非语义文本搜索优先使用 `$CLI text_index search \"literal\"`", reviewBranch);
+
+            var sourceBranchSelectionPath = Path.Combine(GetPackageRoot(), "Skill~", "aibridge-development-workflow", "references", "branch-selection.md");
+            var sourceBranchSelection = File.ReadAllText(sourceBranchSelectionPath);
+            StringAssert.Contains("source Skill 的 fallback", sourceBranchSelection);
+            Assert.AreEqual(
+                ExtractMarkdownSection(sourceBranchSelection, "## 工作流生命周期", "## 需求讨论分支"),
+                ExtractMarkdownSection(branchSelection, "## 工作流生命周期", "## 需求讨论分支"));
+            Assert.AreEqual(
+                ExtractMarkdownSection(sourceBranchSelection, "## Skill 列出策略", "## 输出格式"),
+                ExtractMarkdownSection(branchSelection, "## Skill 列出策略", "## 输出格式"));
         }
 
         [Test]
@@ -197,6 +217,26 @@ namespace AIBridge.Editor.Tests
             StringAssert.Contains("\"codeIndex\"", snapshot);
             StringAssert.Contains("\"enabled\": true", snapshot);
             StringAssert.Contains("\"externalExecutor\": \"unknown\"", snapshot);
+        }
+
+        private static string ExtractMarkdownSection(string markdown, string header, string nextHeader)
+        {
+            var start = markdown.IndexOf(header, StringComparison.Ordinal);
+            Assert.GreaterOrEqual(start, 0, header);
+            var end = markdown.IndexOf(nextHeader, start, StringComparison.Ordinal);
+            Assert.Greater(end, start, nextHeader);
+            return markdown.Substring(start, end - start).Replace("\r\n", "\n").Trim();
+        }
+
+        private static string GetPackageRoot()
+        {
+            var packageInfo = PackageInfo.FindForAssembly(typeof(AIBridgeProjectSettings).Assembly);
+            if (packageInfo != null && !string.IsNullOrWhiteSpace(packageInfo.resolvedPath))
+            {
+                return packageInfo.resolvedPath;
+            }
+
+            return Directory.GetCurrentDirectory();
         }
     }
 }

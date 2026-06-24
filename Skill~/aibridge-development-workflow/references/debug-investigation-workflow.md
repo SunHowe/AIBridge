@@ -51,6 +51,8 @@ $CLI runtime perf --target latest --duration 5s --interval 100ms
 $CLI runtime handlers --target latest
 ```
 
+性能/Profiler 调试按需读取 `profiler-debugging.md`；Editor 侧性能证据优先用 `$CLI profiler <action>`，Player/Play Mode 目标优先用 `$CLI runtime perf`，不要把 Runtime 不支持的 Editor Profiler 能力当作可用。
+
 需要执行项目暴露的诊断 handler 时：
 
 ```bash
@@ -77,7 +79,7 @@ $CLI screenshot gif
 ### 5. 代码和资源关联
 
 - C# 堆栈、符号、定义、引用、调用链：优先 `aibridge-code-index`。
-- 日志文本、配置、资源路径、Prefab/Scene 名称、非 C# 内容：使用 `rg` 或文件读取。
+- 日志文本、配置、资源路径、Prefab/Scene 名称、非 C# 内容：优先使用 `text_index`，不可用时使用 `rg` 或文件读取。
 - Prefab/Scene/asset 结构问题只读检查优先；需要修改时再加载对应修改 Skill。
 
 ### 6. 候选根因验证

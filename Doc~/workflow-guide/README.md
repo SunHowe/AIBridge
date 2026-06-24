@@ -15,4 +15,6 @@ flowchart LR
 - 这页用于快速理解 workflow 的入口、需求讨论分支、模式、步骤、证据校验和交接。
 - HTML 版本包含更完整的流程图、表格、方案写入策略和源码索引。
 - 方案写入默认先落 `.aibridge/plan` 作为工作底稿；当方案需要流程图、对比表或更强的开发者浏览效果时，再同步到正式文档目录并生成 `html`。
+- 常规性能热点排查优先使用 `performance-hotspot-investigation` recipe；它会采集 Editor Profiler、Runtime log/screenshot/perf 证据并写入 workflow Markdown report。
 - 设计依据来自 `Templates~/Workflows/*.json`、`Tools~/AIBridgeCLI/Workflow/*.cs` 和 `Doc~/WorkflowsPanel.md`。
+- 上下文压缩、短入口 Skill、compact Harness gate 和 drift canary 规则见 [ContextCompression.md](./ContextCompression.md)。

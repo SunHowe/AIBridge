@@ -84,6 +84,81 @@ namespace AIBridge.Editor.Tests
         }
 
         [Test]
+        public void FinishPassedDowngradesMissingExternalImportOutputs()
+        {
+            var packageRoot = GetPackageRoot();
+            var cliPath = ResolveCliPath(packageRoot);
+            if (string.IsNullOrEmpty(cliPath) || !File.Exists(cliPath))
+            {
+                Assert.Ignore("AIBridgeCLI executable was not found for this platform.");
+            }
+
+            var projectRoot = CreateTemporaryUnityProject();
+            try
+            {
+                var recipePath = Path.Combine(projectRoot, "external-import-gap.aibridge-workflow.json");
+                File.WriteAllText(recipePath, BuildExternalImportGapRecipeJson());
+
+                var run = RunCli(cliPath, projectRoot, "workflow run-cli --file " + QuoteCliValue(recipePath) + " --raw");
+                var runResult = JsonUtility.FromJson<WorkflowCommandResultView>(run.Stdout);
+
+                Assert.AreNotEqual(0, run.ExitCode, run.Stdout);
+                Assert.IsNotNull(runResult, run.Stdout);
+                Assert.IsFalse(runResult.success, run.Stdout);
+                Assert.IsNotNull(runResult.data, run.Stdout);
+                Assert.AreEqual("partial", runResult.data.status, run.Stdout);
+                Assert.AreEqual("external-handoff", runResult.data.terminalState, run.Stdout);
+                Assert.AreEqual("Missing imported external outputs: Verdict", runResult.data.terminalReason, run.Stdout);
+                Assert.IsNotNull(runResult.data.externalImportGaps, run.Stdout);
+                Assert.AreEqual(1, runResult.data.externalImportGaps.Length, run.Stdout);
+                Assert.AreEqual("collect-verdict", runResult.data.externalImportGaps[0].stepId, run.Stdout);
+                CollectionAssert.Contains(runResult.data.externalImportGaps[0].missingOutputs, "Verdict");
+
+                var finish = RunCli(cliPath, projectRoot, "workflow finish --run " + runResult.data.runId + " --status passed --raw");
+                var finishResult = JsonUtility.FromJson<WorkflowCommandResultView>(finish.Stdout);
+
+                Assert.AreNotEqual(0, finish.ExitCode, finish.Stdout);
+                Assert.IsNotNull(finishResult, finish.Stdout);
+                Assert.IsFalse(finishResult.success, finish.Stdout);
+                Assert.IsNotNull(finishResult.data, finish.Stdout);
+                Assert.AreEqual("blocked", finishResult.data.status, finish.Stdout);
+                Assert.AreEqual("external-handoff", finishResult.data.terminalState, finish.Stdout);
+                Assert.AreEqual("Missing imported external outputs: Verdict", finishResult.data.terminalReason, finish.Stdout);
+                Assert.IsNotNull(finishResult.data.externalImportGaps, finish.Stdout);
+                Assert.AreEqual(1, finishResult.data.externalImportGaps.Length, finish.Stdout);
+                Assert.AreEqual("collect-verdict", finishResult.data.externalImportGaps[0].stepId, finish.Stdout);
+                CollectionAssert.Contains(finishResult.data.externalImportGaps[0].missingOutputs, "Verdict");
+
+                var status = RunCli(cliPath, projectRoot, "workflow status --run " + runResult.data.runId + " --raw");
+                var statusResult = JsonUtility.FromJson<WorkflowCommandResultView>(status.Stdout);
+                Assert.AreEqual(0, status.ExitCode, status.Stderr + status.Stdout);
+                Assert.IsNotNull(statusResult, status.Stdout);
+                Assert.IsNotNull(statusResult.data, status.Stdout);
+                Assert.AreEqual("external-handoff", statusResult.data.terminalState, status.Stdout);
+                Assert.AreEqual("Missing imported external outputs: Verdict", statusResult.data.terminalReason, status.Stdout);
+                Assert.IsNotNull(statusResult.data.artifactIds, status.Stdout);
+                Assert.Greater(statusResult.data.artifactIds.Length, 0, status.Stdout);
+                Assert.IsFalse(status.Stdout.Contains("\"stepGaps\""), status.Stdout);
+                Assert.IsFalse(status.Stdout.Contains("\"evidenceFreshness\""), status.Stdout);
+                Assert.IsFalse(status.Stdout.Contains("\"failedCommands\""), status.Stdout);
+
+                var fullStatus = RunCli(cliPath, projectRoot, "workflow status --run " + runResult.data.runId + " --detail full --raw");
+                Assert.AreEqual(0, fullStatus.ExitCode, fullStatus.Stderr + fullStatus.Stdout);
+                Assert.IsTrue(fullStatus.Stdout.Contains("\"stepGaps\""), fullStatus.Stdout);
+                Assert.IsTrue(fullStatus.Stdout.Contains("\"evidenceFreshness\""), fullStatus.Stdout);
+                Assert.IsTrue(fullStatus.Stdout.Contains("\"failedCommands\""), fullStatus.Stdout);
+                Assert.IsTrue(fullStatus.Stdout.Contains("\"manifest\":"), fullStatus.Stdout);
+            }
+            finally
+            {
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        [Test]
         public void ImportSkillHandoffRequiresCompletedMode()
         {
             var packageRoot = GetPackageRoot();
@@ -123,6 +198,67 @@ namespace AIBridge.Editor.Tests
 
                 Assert.AreNotEqual(0, import.ExitCode, import.Stdout + import.Stderr);
                 StringAssert.Contains("SkillHandoff.completedMode is required", import.Stdout + import.Stderr);
+            }
+            finally
+            {
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        [Test]
+        public void BatchFromTextHonorsUnityProjectRootWithoutUnityMarkers()
+        {
+            var packageRoot = GetPackageRoot();
+            var cliPath = ResolveCliPath(packageRoot);
+            if (string.IsNullOrEmpty(cliPath) || !File.Exists(cliPath))
+            {
+                Assert.Ignore("AIBridgeCLI executable was not found for this platform.");
+            }
+
+            var projectRoot = Path.Combine(Path.GetTempPath(), "AIBridgeBatchCliTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(projectRoot);
+            try
+            {
+                var run = RunCli(
+                    cliPath,
+                    projectRoot,
+                    "batch from_text --text " + QuoteCliValue("# noop") + " --name no_markers_test --no-wait --quiet");
+                var scriptPath = Path.Combine(projectRoot, ".aibridge", "scripts", "no_markers_test.txt");
+
+                Assert.AreEqual(0, run.ExitCode, run.Stderr + run.Stdout);
+                Assert.IsTrue(File.Exists(scriptPath), scriptPath);
+            }
+            finally
+            {
+                if (Directory.Exists(projectRoot))
+                {
+                    Directory.Delete(projectRoot, true);
+                }
+            }
+        }
+
+        [Test]
+        public void ExecRunStdinRejectsTrailingRawCommandWithAgentHint()
+        {
+            var packageRoot = GetPackageRoot();
+            var cliPath = ResolveCliPath(packageRoot);
+            if (string.IsNullOrEmpty(cliPath) || !File.Exists(cliPath))
+            {
+                Assert.Ignore("AIBridgeCLI executable was not found for this platform.");
+            }
+
+            var projectRoot = CreateTemporaryUnityProject();
+            try
+            {
+                var run = RunCli(cliPath, projectRoot, "exec run --stdin rg -n TODO Packages");
+                var output = run.Stdout + run.Stderr;
+
+                Assert.AreNotEqual(0, run.ExitCode, output);
+                StringAssert.Contains("exec run/batch --stdin reads a JSON request from standard input", output);
+                StringAssert.Contains("Pipe JSON into the CLI instead", output);
             }
             finally
             {
@@ -248,6 +384,22 @@ namespace AIBridge.Editor.Tests
                 + "}\n";
         }
 
+        private static string BuildExternalImportGapRecipeJson()
+        {
+            return "{\n"
+                + "  \"schemaVersion\": 1,\n"
+                + "  \"name\": \"external-import-gap-test\",\n"
+                + "  \"description\": \"Exercise external import gap behavior.\",\n"
+                + "  \"requiredSkills\": [\"aibridge-development-workflow\"],\n"
+                + "  \"phases\": [\n"
+                + "    {\"id\": \"collect\", \"type\": \"serial\", \"steps\": [\n"
+                + "      {\"id\": \"collect-verdict\", \"kind\": \"agent\", \"requiredSkills\": [\"aibridge-development-workflow\"], \"outputs\": [\"Verdict\"]}\n"
+                + "    ]}\n"
+                + "  ],\n"
+                + "  \"gates\": []\n"
+                + "}\n";
+        }
+
         private static string QuoteCliValue(string value)
         {
             return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
@@ -299,8 +451,12 @@ namespace AIBridge.Editor.Tests
         {
             public string runId;
             public string status;
+            public string terminalState;
+            public string terminalReason;
             public string manifestPath;
+            public string[] artifactIds;
             public WorkflowGateResultView[] gateResults;
+            public WorkflowExternalImportGapView[] externalImportGaps;
         }
 
         [Serializable]
@@ -309,6 +465,19 @@ namespace AIBridge.Editor.Tests
             public string gateId;
             public string status;
             public bool required;
+        }
+
+        [Serializable]
+        private sealed class WorkflowExternalImportGapView
+        {
+            public string stepId;
+            public string phaseId;
+            public string kind;
+            public string[] expectedOutputs;
+            public string[] missingOutputs;
+            public string[] importedArtifactIds;
+            public string status;
+            public string reason;
         }
     }
 }

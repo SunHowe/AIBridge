@@ -86,20 +86,22 @@ namespace AIBridgeCLI.Commands
         public static DialogClickResult Click(Process process, string choice, string buttonText, string dialogId)
         {
             var dialogs = EnumerateDialogs(process);
-            var dialog = DialogService.SelectDialog(dialogs, dialogId);
-            if (dialog == null)
+            var selection = DialogService.SelectButton(dialogs, choice, buttonText, dialogId);
+            if (!selection.Success)
             {
                 return new DialogClickResult
                 {
                     success = false,
                     platform = PlatformName,
                     processId = process.Id,
-                    error = "No matching Unity dialog was found.",
-                    errorCode = "dialog_not_found"
+                    dialog = selection.Dialog,
+                    error = selection.Error,
+                    errorCode = selection.ErrorCode
                 };
             }
 
-            var button = DialogService.SelectButton(dialog, choice, buttonText);
+            var dialog = selection.Dialog;
+            var button = selection.Button;
             if (button == null)
             {
                 return new DialogClickResult
@@ -364,13 +366,10 @@ namespace AIBridgeCLI.Commands
 
                 if (string.Equals(className, "Button", StringComparison.OrdinalIgnoreCase))
                 {
-                    buttons.Add(new DialogButtonInfo
-                    {
-                        id = "hwnd:" + childHwnd.ToInt64(),
-                        text = text,
-                        choice = DialogService.InferChoice(text),
-                        enabled = IsWindowEnabledByStyle(childHwnd)
-                    });
+                    buttons.Add(DialogService.CreateButtonInfo(
+                        "hwnd:" + childHwnd.ToInt64(),
+                        text,
+                        IsWindowEnabledByStyle(childHwnd)));
                 }
                 else if (className.IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
